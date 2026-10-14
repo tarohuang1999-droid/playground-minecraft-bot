@@ -10,7 +10,7 @@
 pnpm install
 pnpm run typecheck
 pnpm test
-BOT_OWNER=你的Minecraft名稱 pnpm start
+BOT_OWNER=IamJohnWick pnpm start
 ```
 
 可設定 `BOT_HOST`（預設 `127.0.0.1`）、`BOT_PORT`（`25565`）、`BOT_USERNAME`（`CompanionBot`）。目前入口使用 offline authentication，對應本地測試伺服器。

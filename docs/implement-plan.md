@@ -1,6 +1,6 @@
 # Implementation Plan: Companion Bot Core (v1.0)
 
-> 2026-10-14：依使用者最新指示，全專案新實作使用 TypeScript；下列 `.js` 交付路徑對應為 `.ts`。Stage 1、2 已完成單元與 Paper 驗收，詳見 [審核交接](agent-note/stage-1-2-handoff.md)。
+> 2026-10-15：依使用者最新指示，全專案新實作使用 TypeScript；下列 `.js` 交付路徑對應為 `.ts`。Stage 1、2、3 已完成單元與整合驗收，包含 1 格跟隨距離、樓梯/半磚/爬梯支援、門主動開啟防抖動與座標相容修正，詳見 [審核交接](agent-note/note-2026-10-15.md)。
 
 - **目標讀者**：AI Coding Agent / 實作工程師
 - **前置依賴規範**：動工前必須完整讀取 `docs/sys-design/system-design-v1.1.md`，嚴格遵守其中之 `[RULE-01]` 至 `[RULE-10]`。
@@ -78,8 +78,8 @@
 - 當主人不可見（超出視距或跨維度）時，立即 `setGoal(null)` 並回傳 `FAILURE` 退回 `Idle` 等待。
 
 ### 3.4 驗收門檻 (Exit Criteria)
-- [ ] 主人下達 `follow` 後移動，Bot 平滑跟隨，不會在距離 5 格邊界處「走一步停一步」抽搐。
-- [ ] 主人下達 `stop` 時，`Follow` 立即觸發 `cancel()` 呼叫 `setGoal(null)` 原地停下。
+- [x] 主人下達 `follow` 後移動，Bot 平滑跟隨，不會在距離 5 格邊界處「走一步停一步」抽搐；支援繞路與跳過障礙物。
+- [x] 主人下達 `stop` 或 `unfollow` 時，`Follow` 立即觸發 `cancel()` 呼叫 `setGoal(null)` 原地停下。
 
 ---
 

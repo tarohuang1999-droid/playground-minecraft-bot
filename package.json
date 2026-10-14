@@ -9,8 +9,8 @@
     "test": "pnpm run build && \"$npm_node_execpath\" --test dist/test/unit/*.test.js",
     "build": "\"$npm_node_execpath\" node_modules/typescript/bin/tsc",
     "typecheck": "\"$npm_node_execpath\" node_modules/typescript/bin/tsc --noEmit",
-    "bot:npc": "pnpm run build && \"$npm_node_execpath\" dist/src/bot.js",
-    "test:paper": "pnpm run build && \"$npm_node_execpath\" --test dist/test/integration/stage-two-paper.test.js"
+    "bot:npc": "pnpm run build && \"$npm_node_execpath\" --env-file-if-exists=.env dist/src/bot.js",
+    "test:paper": "pnpm run build && \"$npm_node_execpath\" --test dist/test/integration/*.test.js"
   },
   "dependencies": {
     "mineflayer": "^4.39.0",

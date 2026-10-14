@@ -7,7 +7,7 @@ export interface PerceptionSource {
   health: number;
   food: number;
   entities: Record<string, VisibleEntity>;
-  players: Record<string, { entity?: VisibleEntity }>;
+  players: Record<string, { entity?: VisibleEntity; username?: string }>;
   inventory: { emptySlotCount(): number };
 }
 const position = (value: Position): Position => ({ x: value.x, y: value.y, z: value.z });
@@ -19,7 +19,13 @@ export function createPerception(bot: PerceptionSource, owner: string) {
       const world = createWorld(owner);
       const origin = bot.entity.position;
       world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently: false };
-      const master = bot.players[owner]?.entity;
+      let master = bot.players[owner]?.entity;
+      const matchKey = Object.keys(bot.players).find(k => k.toLowerCase() === owner.toLowerCase());
+      if (!master && matchKey) master = bot.players[matchKey]?.entity;
+      if (!master && (bot.players[owner] || matchKey) && bot.entities) {
+        const matchEntity = Object.values(bot.entities).find(e => (e.username ?? e.name ?? '').toLowerCase() === owner.toLowerCase());
+        if (matchEntity) master = matchEntity;
+      }
       if (master) world.master = { username: owner, entityId: master.id, position: position(master.position), distance: distance(origin, master.position) };
       for (const entity of Object.values(bot.entities)) {
         if (entity.id === bot.entity.id) continue;

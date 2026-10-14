@@ -9,6 +9,8 @@ import type { AdapterRegistry } from './execution/types.ts';
 import { createChat } from './actions/chat.ts';
 import { createPerception, type PerceptionSource } from './perception.ts';
 import { parseCommand } from './commands.ts';
+import { createNavigation, setupMovements } from './actions/navigation.ts';
+import { createLogger, type Logger } from './logger.ts';
 
 export interface CompanionPort extends PerceptionSource {
   on<K extends keyof BotEvents>(event: K, listener: BotEvents[K]): unknown;
@@ -16,36 +18,66 @@ export interface CompanionPort extends PerceptionSource {
   chat(message: string): void;
 }
 
-export function attachCompanion(bot: CompanionPort, owner: string, options: { adapters?: AdapterRegistry; now?: () => number } = {}) {
+export function attachCompanion(bot: CompanionPort, owner: string, options: { adapters?: AdapterRegistry; now?: () => number; logger?: Logger } = {}) {
+  const logger = options.logger;
   const board = createBlackboard(owner);
   const perception = createPerception(bot, owner);
   const chat = createChat(message => bot.chat(message));
+  const navigation = createNavigation(bot as any, logger);
+  const hasPathfinderOrPlugin = !!(bot as any).pathfinder || typeof (bot as any).loadPlugin === 'function';
+  const navigationAdapters = hasPathfinderOrPlugin ? {
+    NormalFollow: navigation.normalFollow,
+    CatchUpFollow: navigation.catchUpFollow,
+  } : {};
   const executor = createExecutor(createArbiter(), {
-    Idle: () => ({ start() {}, cancel() {} }), Chat: chat.adapter, ...options.adapters,
-  });
+    Idle: () => ({ start() {}, cancel() {} }), Chat: chat.adapter, ...navigationAdapters, ...options.adapters,
+  }, logger);
   const tree = createCompanionTree(executor.availableActions());
   const runner = createRunner({ board, executor, tree, ...(options.now ? { now: options.now } : {}),
     collectRequests: chat.requests,
     onStatus(snapshot) {
       const actions = Object.values(snapshot.runtime.activeRuns).filter(run => run.status === 'RUNNING').map(run => run.actionType);
-      chat.enqueue(`Intent=${snapshot.intent.mode}; HP=${snapshot.world.self.health}; Food=${snapshot.world.self.food}; Actions=${actions.join(',') || 'Idle'}`);
+      const msg = `Intent=${snapshot.intent.mode}; HP=${snapshot.world.self.health}; Food=${snapshot.world.self.food}; Actions=${actions.join(',') || 'Idle'}`;
+      logger?.info('[status] ' + msg);
+      chat.enqueue(msg);
     },
   });
   let active = false;
   let disposed = false;
   function sample() { runner.enqueue({ type: 'world', world: perception.sample() }); }
-  function reset() { active = false; runner.pause(); chat.reset(); }
+  function reset() {
+    active = false;
+    logger?.info('[lifecycle] bot reset/pause');
+    runner.pause();
+    chat.reset();
+  }
   function spawn() {
     if (active) reset();
-    active = true; runner.resume(); sample();
+    setupMovements(bot as any, logger);
+    active = true;
+    logger?.info('[lifecycle] bot spawned & active');
+    runner.resume();
+    sample();
   }
   function respawn() { if (active) reset(); }
   function physicsTick() { if (active) { sample(); runner.physicsTick(); } }
   function health() { if (active) { sample(); runner.requestUrgentTick(); } }
   function command(username: string, message: string) {
-    if (!active) return;
+    logger?.info(`[chat] from=${username}: "${message}" (configured owner=${owner})`);
+    if (!active) {
+      logger?.warn('[chat] ignored: bot is currently dead or inactive');
+      return;
+    }
     const event = parseCommand(owner, username, message);
-    if (!event) return;
+    if (!event) {
+      if (username.trim().toLowerCase() !== owner.trim().toLowerCase()) {
+        logger?.warn(`[chat] rejected: sender "${username}" does not match owner "${owner}"`);
+      } else {
+        logger?.warn(`[chat] ignored unknown command: "${message}"`);
+      }
+      return;
+    }
+    logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);
     runner.enqueue(event);
     if (event.type === 'intent') chat.enqueue(`Intent=${event.mode}`);
     runner.requestUrgentTick();
@@ -81,14 +113,23 @@ export function startBot(env: NodeJS.ProcessEnv = process.env) {
   if (!owner || !/^[A-Za-z0-9_]{1,16}$/.test(owner)) throw new Error('Set BOT_OWNER to your Minecraft username (1–16 letters, digits or underscores)');
   const port = Number(env.BOT_PORT ?? '25565');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('BOT_PORT must be between 1 and 65535');
-  const bot = createBot({ host: env.BOT_HOST ?? '127.0.0.1', port, username: env.BOT_USERNAME ?? 'CompanionBot', auth: 'offline' });
+  const botName = env.BOT_USERNAME ?? 'CompanionBot';
+  const logger = createLogger(botName);
+  logger.info(`Starting CompanionBot for owner="${owner}" on ${env.BOT_HOST ?? '127.0.0.1'}:${port}`);
+  logger.info(`File logging active at: ${logger.logFilePath}`);
+  const bot = createBot({ host: env.BOT_HOST ?? '127.0.0.1', port, username: botName, auth: 'offline' });
   bot.loadPlugin(pathfinder);
-  const companion = attachCompanion(bot, owner);
-  bot.on('spawn', () => console.log(`[companion] spawned; owner=${owner}; Stage 2 (body actions pending)`));
-  bot.on('error', error => console.error('[companion]', error.message));
-  bot.on('kicked', reason => console.error('[companion] kicked:', reason));
-  bot.once('end', () => companion.dispose());
-  return { bot, companion };
+  const companion = attachCompanion(bot, owner, { logger });
+  bot.on('spawn', () => logger.info(`[companion] spawned; owner=${owner}; Stage 3 (follow active)`));
+  bot.on('death', () => logger.warn('[companion] died!'));
+  bot.on('respawn', () => logger.info('[companion] respawned'));
+  bot.on('error', error => logger.error('[companion] error: ' + error.message));
+  bot.on('kicked', reason => logger.error('[companion] kicked: ' + String(reason)));
+  bot.once('end', () => {
+    logger.info('[companion] connection ended');
+    companion.dispose();
+  });
+  return { bot, companion, logger };
 }
 
 if (require.main === module) startBot();

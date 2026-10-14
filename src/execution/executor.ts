@@ -14,7 +14,7 @@ interface Run {
   ctx: ActionContext;
   completionQueued: boolean;
 }
-export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry) {
+export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logger?: { error?(m: string, d?: unknown): void }) {
   const runs = new Map<string, Run>();
   const results = new Map<string, ActionResult>();
   const cooldowns = new Map<number, number>();
@@ -31,7 +31,11 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry) {
     run.controller.abort();
     run.releaseAtTick = tick + 1;
     try { run.adapter.cancel(); }
-    catch (error) { run.status = 'FAULTED'; fault = String(error); }
+    catch (error) {
+      run.status = 'FAULTED';
+      fault = String(error);
+      logger?.error?.(`[executor] action ${run.request.actionType} cancel error: ${error}`);
+    }
   }
   function queueResult(run: Run, value: void | ActionResult) {
     if (!value || !run.ctx.isActive() || run.completionQueued) return;
@@ -47,10 +51,14 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry) {
           queueResult(run, outcome);
         }, error => {
           if (!run.ctx.isActive()) return;
+          logger?.error?.(`[executor] action ${run.request.actionType} async error: ${error?.stack ?? error}`);
           queueResult(run, { status: 'FAILURE', reason: String(error) });
         });
       } else queueResult(run, value);
-    } catch (error) { queueResult(run, { status: 'FAILURE', reason: String(error) }); }
+    } catch (error: any) {
+      logger?.error?.(`[executor] action ${run.request.actionType} error: ${error?.stack ?? error}`);
+      queueResult(run, { status: 'FAILURE', reason: String(error) });
+    }
   }
   return {
     reconcile(requests: readonly ActionRequest[], snapshot: BlackboardSnapshot, now: number) {
