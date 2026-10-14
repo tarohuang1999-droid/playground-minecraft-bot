@@ -1,5 +1,6 @@
 # node packages
 node_modules
+dist/
 
 # papermc
 papermc

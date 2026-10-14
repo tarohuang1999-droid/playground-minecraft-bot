@@ -1,118 +1,62 @@
 # Playground Mineflayer
 
-A playground and foundation for controlling Minecraft bots via Mineflayer, designed for LLM (Large Language Model) agent experimentation and automated gameplay.
+以 TypeScript 建立 Minecraft companion bot。Stage 1、2 已實作核心引擎與決策管線；目前能登入、感知基本狀態並接受主人指令，身體動作尚未啟用。
 
----
+## 執行
 
-## Overview
+本次驗證環境：Node 26.0.0、pnpm 10.27.0、TypeScript 7.0.2；Paper 26.1.2 使用 Java 25。
 
-This project provides the perception and action foundation needed for LLM-powered Minecraft agents:
-* **Perception & State**: Collects world states, player positions, block data, and chat events via Mineflayer.
-* **Skill Execution**: Executes movement and block interactions through modular plugins (`mineflayer-pathfinder`, `mineflayer-collectblock`).
-* **Local Testbed**: Includes standalone PaperMC server setups for reproducible offline testing.
-
----
-
-## Project Structure
-
-* `companion_bot.js`: Enhanced interactive companion bot (`CompanionBot`) featuring reliable player-following heartbeat, single navigation (`come`), resource gathering (`get [item]`), and coordinate reporting (`position`).
-* `base_bot_smart.js`: Autonomous bot (`SmartWorker`) with basic pathfinding and logging.
-* `base_bot.js`: Minimal baseline bot (`[BOT]bob`) verifying server connection and chat mirroring.
-* `test/companion_bot.test.js`: Unit tests for command parsing, alias matching, and position formatting logic.
-* `paper_server_26.1/`: Local PaperMC server runtime (Minecraft 26.1.2) configured for offline testing (`online-mode=false`).
-* `paper_server_26.2/`: PaperMC 26.2 server jar and workspace.
-* `docs/cheatsheet-nvm.md`: Node Version Manager (nvm) quick reference sheet.
-* `package.json`: Project dependencies, test runners, and launcher scripts.
-
----
-
-## NPC v1 Design Handoff
-
-The next NPC is designed but not implemented yet. Its structure is deliberately small: `bot.js`, `commands.js`, `controller.js`, `behaviors/`, and `skills/`. Start with [docs/README.md](docs/README.md) for the plain-language flow, coding templates, and five-step implementation checklist. The scripts below still launch the existing prototype bots.
-
----
-
-## Prerequisites
-
-* **Node.js**: v22+ (required by the installed Mineflayer 4.39.0); the new NPC design targets Node 24
-* **Java Runtime**: JDK 21+ (required for modern PaperMC versions)
-* **Minecraft Client**: Matching Minecraft version (e.g. 26.1.2) if joining manually to interact with the bot
-
----
-
-## Installation
-
-Install project dependencies:
-
-```bash
-npm install
+```sh
+pnpm install
+pnpm run typecheck
+pnpm test
+BOT_OWNER=你的Minecraft名稱 pnpm start
 ```
 
-Core dependencies:
-* `mineflayer`: High-level Minecraft client API.
-* `mineflayer-pathfinder`: A* pathfinding and navigation logic.
-* `mineflayer-collectblock`: Automatic block search and collection routines.
+可設定 `BOT_HOST`（預設 `127.0.0.1`）、`BOT_PORT`（`25565`）、`BOT_USERNAME`（`CompanionBot`）。目前入口使用 offline authentication，對應本地測試伺服器。
 
----
+主人在聊天室或私訊輸入：
 
-## Usage Guide
+- `follow`：意圖設為 `FOLLOW`。Stage 2 仍待機，實際跟隨由 Stage 3 實作。
+- `stop`：意圖設為 `STAY`。
+- `status`：回報意圖、血量、飢餓值及活動中的動作。
 
-### 1. Start the Local PaperMC Server
+其他玩家的指令不生效。聊天回覆使用獨立 VOICE 佇列，每秒最多一則。
 
-Run the local PaperMC server instance:
+## 結構
 
-```bash
-java -Xmx2G -Xms2G -jar paper_server_26.1/paper-26.1.2-74.jar nogui
+- `src/blackboard.ts`：分區狀態與深度凍結快照。
+- `src/perception.ts`、`src/commands.ts`：世界觀察與主人意圖。
+- `src/bt/`：同步行為樹、子樹骨架、每兩個物理 tick 的決策管線。
+- `src/execution/`：整組資源仲裁、動作取消、token/session 隔離。
+- `src/actions/chat.ts`：目前唯一有遊戲副作用的 Action。
+- `src/bot.ts`：連線、插件掛載、死亡／重生／斷線處理。
+- `test/unit/`：不需伺服器的測試。
+- `test/integration/stage-two-paper.test.ts`：真實 Paper 聊天驗收。
+
+新入口只掛載 pathfinder，未載入自動戰鬥、進食或換裝插件。`base_bot.js`、`base_bot_smart.js`、`bot_01.js` 為保留的舊實驗程式；`bot:base` 與 `bot:smart` 仍可執行，並非新架構。
+
+## Paper 驗收
+
+先在獨立測試世界啟動 offline-mode Paper，例如：
+
+```sh
+cd papermc/paper_server_26.1
+java -Xms512M -Xmx1G -jar paper-26.1.2-74.jar --nogui
 ```
 
-* The server runs on `localhost:25565`.
-* `online-mode` is set to `false` in `paper_server_26.1/server.properties` for local offline authentication.
+再從專案根目錄執行：
 
-### 2. Launch the Bot
-
-* **Run Smart Autonomous Bot**:
-  ```bash
-  npm run bot:smart
-  # or: node base_bot_smart.js
-  ```
-  Connects as `SmartWorker`.
-
-* **Run Basic Echo Bot**:
-  ```bash
-  npm run bot:base
-  # or: node base_bot.js
-  ```
-  Connects as `[BOT]bob` and echoes chat messages.
-
----
-
-## In-Game Bot Commands (`companion_bot.js`)
-
-When `companion_bot.js` is running, players can issue the following commands in game chat:
-
-* `follow`: Starts continuous following mode. Keeps a 2.5-block safe distance, backed by an active heartbeat loop so the bot never freezes when you move away.
-* `come`: Pathfinds directly to your current position once, stopping within 1.5 blocks.
-* `get [item]` / `get [count] [item]`: Automatically searches for and collects the specified block or dropped item within a 48-block radius.
-  * Examples: `get wood`, `get 3 dirt`, `get 5 oak_log`, `get stone`, `get iron`
-  * Includes smart aliases (e.g. `wood` matches logs/wood/stems, `dirt` matches grass/dirt, `stone` matches stone/cobble/deepslate).
-* `position` (or `pos`, `where`): Reports the bot's current coordinates (X, Y, Z), distance to the caller, health, and hunger.
-* `stop`: Immediately halts all ongoing actions, pathfinding goals, and follow modes.
-* `help`: Prints command usage in chat.
-
----
-
-## Testing
-
-Run unit tests verifying command parsing, alias mapping, and formatting:
-
-```bash
-npm test
+```sh
+BOT_PORT=25565 pnpm run test:paper
 ```
 
----
+測試會登入 `Stage2Owner` 和 `Stage2Bot`，送出 `follow`、`stop`、`status`，確認意圖切換及 Idle 回落，最後登出。一般 `pnpm test` 不會連線。
 
-## LLM Integration Architecture
+## 設計與交接
 
-The planned NPC separates perception, decision selection, and cancellable execution. LLMs propose authorized high-level orders; a future decision-head classifier selects from rule-validated task candidates. Safety and self-defense remain deterministic, and model calls never block the control loop.
+- [最新設計](docs/sys-design/system-design-v1.1.md)
+- [分階段實作計畫](docs/implement-plan.md)
+- [Stage 1／2 審核與 Stage 3 交接](docs/agent-note/stage-1-2-handoff.md)
 
-Owner tasks, current behavior, and future mood/needs are separate data; emotions do not require separate state machines. See [future model integration](docs/model-integration.md) and [the NPC architecture](docs/npc-architecture.md). These interfaces are a design target; the current prototype does not implement the LLM or classifier adapters.
+LLM、JEV/KEV、Agent Memory 均 pending，目前沒有建立相關接口。

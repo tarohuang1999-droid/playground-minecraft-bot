@@ -2,11 +2,15 @@
   "name": "playground-mineflayer",
   "version": "1.0.0",
   "scripts": {
-    "start": "node companion_bot.js",
-    "bot:companion": "node companion_bot.js",
+    "start": "pnpm run bot:npc",
+    "bot:companion": "pnpm run bot:npc",
     "bot:smart": "node base_bot_smart.js",
     "bot:base": "node base_bot.js",
-    "test": "node --test test/*.test.js"
+    "test": "pnpm run build && \"$npm_node_execpath\" --test dist/test/unit/*.test.js",
+    "build": "\"$npm_node_execpath\" node_modules/typescript/bin/tsc",
+    "typecheck": "\"$npm_node_execpath\" node_modules/typescript/bin/tsc --noEmit",
+    "bot:npc": "pnpm run build && \"$npm_node_execpath\" dist/src/bot.js",
+    "test:paper": "pnpm run build && \"$npm_node_execpath\" --test dist/test/integration/stage-two-paper.test.js"
   },
   "dependencies": {
     "mineflayer": "^4.39.0",
@@ -18,5 +22,9 @@
     "mineflayer-statemachine": "^1.7.0",
     "mineflayer-tool": "^1.2.0",
     "prismarine-viewer": "^1.33.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
   }
 }
