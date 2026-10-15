@@ -5,6 +5,9 @@ dist/
 # papermc
 papermc
 
+# docs references
+docs/references
+
 .DS_Store
 
 .env
