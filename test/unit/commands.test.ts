@@ -98,3 +98,38 @@ test('commands integration: !base sets base coordinate and confirms in chat', ()
   companion.dispose();
 });
 
+test('commands integration: !state and !status output comprehensive status telemetry to chat', () => {
+  class StateTestBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 19;
+    food = 18;
+    players: Record<string, any> = {};
+    entities: Record<string, any> = {};
+    inventory = { emptySlotCount: () => 28, items: () => [], slots: [] };
+    heldItem: any = { name: 'iron_sword' };
+    sent: string[] = [];
+    chat(message: string) { this.sent.push(message); }
+  }
+
+  const bot = new StateTestBot();
+  const companion = attachCompanion(bot as any, 'dakaz');
+  bot.emit('spawn');
+
+  // Master sends !state
+  bot.emit('chat', 'dakaz', '!state');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  // Verify status telemetry message was broadcast
+  const statusMsg = bot.sent.find(m => m.includes('HP=19/20') && m.includes('Food=18/20'));
+  assert.ok(statusMsg, 'Expected status message in chat, got: ' + JSON.stringify(bot.sent));
+  assert.ok(statusMsg.includes('Intent=IDLE'));
+  assert.ok(statusMsg.includes('Base=None'));
+  assert.ok(statusMsg.includes('Spawn=None'));
+  assert.ok(statusMsg.includes('Weapon=iron_sword'));
+  assert.ok(statusMsg.includes('FreeSlots=28'));
+
+  companion.dispose();
+});
+
+

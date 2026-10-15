@@ -241,7 +241,7 @@
 - **資訊豐富性與緊湊度**：避免多行刷頻（Minecraft 聊天室行數有限），以精簡格式輸出（例：`HP=20/20 Food=20 Mode=FOLLOW Base=(X,Y,Z) Spawn=(X,Y,Z) Weapon=iron_sword FreeSlots=24`）。
 
 ### 10.4 驗收門檻 (Exit Criteria)
-- [ ] 發送 `!state` 或 `!status`，機器人能在聊天室完整回報上述關鍵數值。
+- [x] 發送 `!state` 或 `!status`，機器人能在聊天室完整回報上述關鍵數值。
 
 ---
 

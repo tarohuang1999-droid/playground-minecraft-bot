@@ -64,7 +64,14 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     collectRequests: chat.requests,
     onStatus(snapshot) {
       const actions = Object.values(snapshot.runtime.activeRuns).filter(run => run.status === 'RUNNING').map(run => run.actionType);
-      const msg = `Intent=${snapshot.intent.mode}; HP=${snapshot.world.self.health}; Food=${snapshot.world.self.food}; Actions=${actions.join(',') || 'Idle'}`;
+      const baseStr = snapshot.world.base
+        ? `(${snapshot.world.base.x.toFixed(1)},${snapshot.world.base.y.toFixed(1)},${snapshot.world.base.z.toFixed(1)})`
+        : 'None';
+      const spawnStr = snapshot.world.spawnPoint
+        ? `(${snapshot.world.spawnPoint.x.toFixed(1)},${snapshot.world.spawnPoint.y.toFixed(1)},${snapshot.world.spawnPoint.z.toFixed(1)})`
+        : 'None';
+      const weapon = snapshot.world.inventory.bestWeapon?.name ?? (bot as any).heldItem?.name ?? 'None';
+      const msg = `Intent=${snapshot.intent.mode} HP=${snapshot.world.self.health}/20 Food=${snapshot.world.self.food}/20 Action=${actions.join(',') || 'Idle'} Base=${baseStr} Spawn=${spawnStr} Weapon=${weapon} FreeSlots=${snapshot.world.inventory.freeSlots}`;
       logger?.info('[status] ' + msg);
       chat.enqueue(msg);
     },
