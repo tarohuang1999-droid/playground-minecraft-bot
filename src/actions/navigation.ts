@@ -430,6 +430,8 @@ export function findSafestEscapePosition(
 export interface NavigationCallbacks {
   onComeArrived?: () => void;
   onReturnArrived?: () => void;
+  onSpawnSet?: (pos: { x: number; y: number; z: number }) => void;
+  onSpawnFailed?: () => void;
 }
 
 export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, callbacks?: NavigationCallbacks) {
@@ -1094,6 +1096,151 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     };
   }
 
+  function setSpawnAdapter(onSpawnSet?: (pos: any) => void, onSpawnFailed?: () => void): AdapterFactory {
+    return (request: ActionRequest): ActionAdapter => {
+      let activeGoal: unknown = null;
+      let targetPos: { x: number; y: number; z: number } | null = null;
+      let startTime = 0;
+      let isJumping = false;
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
+      let lastRepathTime = 0;
+
+      return {
+        start(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          if (!bot.pathfinder) {
+            logger?.warn('[navigation] cannot set spawn: pathfinder is not loaded');
+            return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
+          }
+          const snapshot = ctx.getSnapshot();
+          const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
+            ? { x: request.params.x, y: request.params.y, z: request.params.z }
+            : snapshot.world.nearbyBed;
+          if (!target) {
+            logger?.warn('[navigation] SetSpawn bed target is missing');
+            bot.pathfinder.setGoal(null);
+            return { status: 'FAILURE', reason: 'Bed target missing' };
+          }
+          targetPos = { x: target.x, y: target.y, z: target.z };
+          startTime = Date.now();
+          lastProgressTime = startTime;
+          lastRepathTime = startTime;
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
+
+          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
+          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          if (dist <= 2.5) {
+            const bedBlock = safeBlockAt(bot, targetPos);
+            if (bedBlock && typeof bot.activateBlock === 'function') {
+              bot.activateBlock(bedBlock).catch(err => {
+                logger?.warn('[navigation] activateBlock error: ' + err);
+              });
+            }
+            logger?.info(`[navigation] SetSpawn arrived at bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+            onSpawnSet?.(targetPos);
+            return { status: 'SUCCESS' };
+          }
+
+          logger?.info(`[navigation] SetSpawn started towards bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+          activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
+          bot.pathfinder.setGoal(activeGoal, false);
+        },
+
+        update(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          const now = Date.now();
+          if (now - startTime > 30000) {
+            logger?.warn('[navigation] SetSpawn timed out after 30s');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            onSpawnFailed?.();
+            return { status: 'FAILURE', reason: 'SetSpawn timed out after 30000ms' };
+          }
+
+          if (!targetPos) {
+            const snapshot = ctx.getSnapshot();
+            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : snapshot.world.nearbyBed;
+            if (target) targetPos = { x: target.x, y: target.y, z: target.z };
+            else {
+              onSpawnFailed?.();
+              return { status: 'FAILURE', reason: 'Bed target missing' };
+            }
+          }
+
+          const currentPos = bot.entity?.position ?? ctx.getSnapshot().world.self.position;
+          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          if (dist <= 2.5) {
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            const bedBlock = safeBlockAt(bot, targetPos);
+            if (bedBlock && typeof bot.activateBlock === 'function') {
+              bot.activateBlock(bedBlock).catch(err => {
+                logger?.warn('[navigation] activateBlock error: ' + err);
+              });
+            }
+            logger?.info(`[navigation] SetSpawn successfully reached bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+            onSpawnSet?.(targetPos);
+            return { status: 'SUCCESS' };
+          }
+
+          doorManager.tryOpenDoorInFront(bot, logger);
+
+          if (isClimbingLadder(bot)) {
+            const dy = targetPos.y - currentPos.y;
+            bot.setControlState?.('jump', dy > 0.3);
+            isJumping = dy > 0.3;
+          } else {
+            if (shouldJumpObstacle(bot)) {
+              bot.setControlState?.('jump', true);
+              isJumping = true;
+            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+              bot.setControlState?.('jump', false);
+              isJumping = false;
+            }
+          }
+
+          if (currentPos && lastPos) {
+            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            if (mdist >= 0.15) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          } else if (currentPos) {
+            lastPos = { ...currentPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          const progressStalled = (now - lastProgressTime) > 1500;
+          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 800;
+
+          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1500) {
+            logger?.info('[navigation] SetSpawn path obstructed or idle, recalculating...', { dist });
+            lastRepathTime = now;
+            lastProgressTime = now;
+            if (currentPos) lastPos = { ...currentPos };
+            activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
+            bot.pathfinder?.setGoal(activeGoal, false);
+          }
+        },
+
+        cancel() {
+          logger?.info('[navigation] SetSpawn cancelled');
+          activeGoal = null;
+          targetPos = null;
+          bot.setControlState?.('jump', false);
+          bot.pathfinder?.setGoal(null);
+          doorManager.reset();
+        },
+      };
+    };
+  }
+
   return {
     normalFollow: followAdapter(THRESHOLDS.followExit, THRESHOLDS.followExit),
     catchUpFollow: followAdapter(THRESHOLDS.catchUpExit, THRESHOLDS.catchUpExit),
@@ -1101,5 +1248,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     retreat: retreatAdapter(),
     comeOnce: comeOnceAdapter(callbacks?.onComeArrived),
     returnToBase: returnToBaseAdapter(callbacks?.onReturnArrived),
+    setSpawn: setSpawnAdapter(callbacks?.onSpawnSet, callbacks?.onSpawnFailed),
   };
 }

@@ -283,6 +283,8 @@ test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allow
         master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
         base: null,
         spawnPoint: null,
+        bedNeedsRefresh: false,
+        nearbyBed: null,
         entities: [],
         threats: [{ entityId: 10, name: 'zombie', position: { x: 3, y: 64, z: 0 }, distance: 3 }],
         nearbyDrops: [],

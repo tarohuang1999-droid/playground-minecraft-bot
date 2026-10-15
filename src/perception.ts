@@ -186,6 +186,7 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
   let currentBase: Position | null = null;
   let currentSpawnPoint: Position | null = null;
   let bedNeedsRefresh = false;
+  let bedCooldownUntil = 0;
 
   const getNow = () => (options.now ? options.now() : Date.now());
 
@@ -193,6 +194,7 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
     setBase(pos: Position) {
       currentBase = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
       bedNeedsRefresh = true;
+      bedCooldownUntil = 0;
     },
 
     getBase(): Position | null {
@@ -214,6 +216,14 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
 
     clearBedRefreshNeeded() {
       bedNeedsRefresh = false;
+    },
+
+    setBedCooldown(durationMs: number) {
+      bedCooldownUntil = getNow() + durationMs;
+    },
+
+    clearBedCooldown() {
+      bedCooldownUntil = 0;
     },
 
     recordAttacker(
@@ -261,6 +271,32 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
       world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently };
       world.base = currentBase ? { ...currentBase } : null;
       world.spawnPoint = currentSpawnPoint ? { ...currentSpawnPoint } : null;
+      world.bedNeedsRefresh = bedNeedsRefresh;
+      world.nearbyBed = null;
+
+      if (bedCooldownUntil <= now && (currentSpawnPoint === null || bedNeedsRefresh)) {
+        const centerPos = currentBase ?? origin;
+        if (centerPos && typeof (bot as any).findBlock === 'function') {
+          const bedBlock = (bot as any).findBlock({
+            matching: (b: any) => b?.name?.includes('bed'),
+            maxDistance: 24,
+            point: centerPos,
+          });
+          if (bedBlock && bedBlock.position) {
+            world.nearbyBed = position(bedBlock.position);
+          }
+        } else if (centerPos && (bot as any).blocks) {
+          for (const b of Object.values((bot as any).blocks as Record<string, any>)) {
+            if (b?.name?.includes('bed') && b?.position) {
+              const d = distance(centerPos, b.position);
+              if (d <= 24) {
+                world.nearbyBed = position(b.position);
+                break;
+              }
+            }
+          }
+        }
+      }
 
       // Prune expired dynamic threats
       for (const [id, threat] of dynamicThreats.entries()) {

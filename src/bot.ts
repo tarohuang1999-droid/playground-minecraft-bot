@@ -38,6 +38,20 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       chat.enqueue('Arrived at base.');
       runner.requestUrgentTick();
     },
+    onSpawnSet: (pos) => {
+      perception.setSpawnPoint(pos);
+      const msg = `Spawn point set to (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`;
+      logger?.info(`[spawn] ${msg}`);
+      chat.enqueue(msg);
+      sample();
+      runner.requestUrgentTick();
+    },
+    onSpawnFailed: () => {
+      logger?.warn('[spawn] Bed unreachable, entering 60s cooldown');
+      perception.setBedCooldown(60000);
+      sample();
+      runner.requestUrgentTick();
+    },
   });
   const inventory = createInventoryAdapters(bot as any, logger);
   const combat = createCombatAdapter(bot as any, logger, {
@@ -60,6 +74,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     Retreat: navigation.retreat,
     ComeOnce: navigation.comeOnce,
     ReturnToBase: navigation.returnToBase,
+    SetSpawn: navigation.setSpawn,
   } : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,

@@ -11,6 +11,7 @@ export const ACTION_POLICY = {
   ComeOnce: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
   ReturnToBase: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
   NormalFollow: { priority: 20, requiredResources: ['MOVE', 'LOOK'] },
+  SetSpawn: { priority: 15, requiredResources: ['MOVE', 'LOOK', 'HAND'] },
   Chat: { priority: 10, requiredResources: ['VOICE'] },
   Idle: { priority: 0, requiredResources: [] },
 } as const satisfies Record<string, { priority: number; requiredResources: readonly ResourceChannel[] }>;

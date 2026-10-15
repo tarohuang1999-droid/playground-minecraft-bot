@@ -66,11 +66,29 @@ export function workSubtree(available: ReadonlySet<string>) {
     }),
     { exit: s => !available.has('ReturnToBase') || !canReturn(s) });
 
+  const canSetSpawn = (s: BlackboardSnapshot) =>
+    s.world.self.isAlive &&
+    s.world.nearbyBed !== null &&
+    (s.world.spawnPoint === null || s.world.bedNeedsRefresh);
+
+  const setSpawn = guard('SetSpawn-ready',
+    s => available.has('SetSpawn') && canSetSpawn(s),
+    action('SetSpawn', s => {
+      const bed = s.world.nearbyBed!;
+      return {
+        actionType: 'SetSpawn',
+        targetId: null,
+        params: { x: bed.x, y: bed.y, z: bed.z },
+      };
+    }),
+    { exit: s => !available.has('SetSpawn') || !canSetSpawn(s) });
+
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
     comeOnce,
     returnToBase,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
+    setSpawn,
   ]);
 }

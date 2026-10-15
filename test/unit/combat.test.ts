@@ -181,6 +181,8 @@ test('combat adapter: equips best weapon, chases target, looks and attacks withi
         master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
         base: null,
         spawnPoint: null,
+        bedNeedsRefresh: false,
+        nearbyBed: null,
         entities: [],
         threats: [],
         nearbyDrops: [],
