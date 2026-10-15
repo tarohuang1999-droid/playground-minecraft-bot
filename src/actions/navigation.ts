@@ -866,8 +866,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           targetPos = { x: target.x, y: target.y, z: target.z };
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
           const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
-          if (dist <= 2.0) {
-            logger?.info('[navigation] ComeOnce already within 2.0 blocks of target');
+          if (dist <= 2.5) {
+            logger?.info('[navigation] ComeOnce already within 2.5 blocks of target');
             onArrival?.();
             return { status: 'SUCCESS' };
           }
@@ -905,7 +905,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
           const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
-          if (dist <= 2.0) {
+          if (dist <= 2.5) {
             logger?.info('[navigation] ComeOnce arrived at target position');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
@@ -995,8 +995,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           targetPos = { x: target.x, y: target.y, z: target.z };
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
           const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
-          if (dist <= 2.0) {
-            logger?.info('[navigation] ReturnToBase already within 2.0 blocks of destination');
+          if (dist <= 2.5) {
+            logger?.info('[navigation] ReturnToBase already within 2.5 blocks of destination');
             onArrival?.();
             return { status: 'SUCCESS' };
           }
@@ -1034,7 +1034,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
           const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
-          if (dist <= 2.0) {
+          if (dist <= 2.5) {
             logger?.info('[navigation] ReturnToBase arrived at destination');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);

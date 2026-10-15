@@ -180,6 +180,19 @@ export interface DynamicHostileTarget {
   isOwner: boolean;
 }
 
+export function isBedBlock(b: any): boolean {
+  if (!b || !b.name) return false;
+  if (b.name === 'bedrock') return false;
+  return b.name.endsWith('_bed') || b.name === 'bed';
+}
+
+export function isAvailableBed(b: any): boolean {
+  if (!isBedBlock(b)) return false;
+  const props = typeof b.getProperties === 'function' ? b.getProperties() : b._properties;
+  if (props && (props.occupied === 'true' || props.occupied === true)) return false;
+  return true;
+}
+
 export function createPerception(bot: PerceptionSource, owner?: string, options: { now?: () => number } = {}) {
   let lastHealth = bot.health;
   let lastDamageTime = 0;
@@ -286,12 +299,7 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
         if (centerPos && typeof (bot as any).findBlock === 'function') {
           const point = new Vec3(centerPos.x, centerPos.y, centerPos.z);
           const bedBlock = (bot as any).findBlock({
-            matching: (b: any) => {
-              if (!b || !b.name || !b.name.includes('bed')) return false;
-              const props = typeof b.getProperties === 'function' ? b.getProperties() : b._properties;
-              if (props && (props.occupied === 'true' || props.occupied === true)) return false;
-              return true;
-            },
+            matching: (b: any) => isAvailableBed(b),
             maxDistance: 24,
             point,
           });
@@ -300,9 +308,7 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
           }
         } else if (centerPos && (bot as any).blocks) {
           for (const b of Object.values((bot as any).blocks as Record<string, any>)) {
-            if (b?.name?.includes('bed') && b?.position) {
-              const props = typeof b.getProperties === 'function' ? b.getProperties() : b._properties;
-              if (props && (props.occupied === 'true' || props.occupied === true)) continue;
+            if (isAvailableBed(b) && b?.position) {
               const d = distance(centerPos, b.position);
               if (d <= 24) {
                 world.nearbyBed = position(b.position);

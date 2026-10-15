@@ -15,6 +15,7 @@ import { createCombatAdapter } from './actions/combat.ts';
 import { createLogger, type Logger } from './logger.ts';
 
 export interface CompanionPort extends PerceptionSource {
+  username?: string;
   on<K extends keyof BotEvents>(event: K, listener: BotEvents[K]): unknown;
   removeListener<K extends keyof BotEvents>(event: K, listener: BotEvents[K]): unknown;
   chat(message: string): void;
@@ -182,6 +183,9 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     }
   }
   function command(username: string, message: string) {
+    const selfName = (bot.username ?? (bot.entity as any)?.username ?? '').trim().toLowerCase();
+    if (selfName && username.trim().toLowerCase() === selfName) return;
+
     logger?.info(`[chat] from=${username}: "${message}" (configured owner=${owner})`);
     if (!active) {
       logger?.warn('[chat] ignored: bot is currently dead or inactive');

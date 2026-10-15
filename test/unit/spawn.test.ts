@@ -18,9 +18,11 @@ test('spawn perception: findBlock receives Vec3 instance with .floored() and res
       assert.strictEqual(typeof options.point?.floored, 'function');
       const floored = options.point.floored();
       assert.strictEqual(typeof floored.x, 'number');
-      // Verify matcher filters out occupied beds
+      // Verify matcher filters out occupied beds and bedrock
+      assert.strictEqual(options.matching({ name: 'bedrock' }), false);
       assert.strictEqual(options.matching({ name: 'red_bed', _properties: { occupied: 'true' } }), false);
       assert.strictEqual(options.matching({ name: 'red_bed', _properties: { occupied: 'false' } }), true);
+      assert.strictEqual(options.matching({ name: 'white_bed' }), true);
       return { position: { x: 5, y: 64, z: 5 } };
     },
   };
@@ -41,6 +43,7 @@ test('spawn perception: autonomous bed discovery (no-owner vs owner-with-base)',
     entities: {},
     inventory: { emptySlotCount: () => 36, items: () => [], slots: [] },
     blocks: {
+      'bedrockBlock': { name: 'bedrock', position: { x: 1, y: 64, z: 1 } }, // closer than red_bed, must be ignored!
       'bed1': { name: 'red_bed', position: { x: 5, y: 64, z: 5 } },
       'bed2': { name: 'blue_bed', position: { x: 100, y: 64, z: 100 } },
     },
