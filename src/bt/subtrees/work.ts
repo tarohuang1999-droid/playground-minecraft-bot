@@ -101,7 +101,8 @@ export function workSubtree(available: ReadonlySet<string>) {
   const canSetSpawn = (s: BlackboardSnapshot) =>
     s.world.self.isAlive &&
     s.world.nearbyBed !== null &&
-    (s.world.spawnPoint === null || s.world.bedNeedsRefresh);
+    (s.world.spawnPoint === null || s.world.bedNeedsRefresh) &&
+    (s.intent.mode !== 'STAY' || (s.world.nearbyBed && Math.hypot(s.world.nearbyBed.x - s.world.self.position.x, s.world.nearbyBed.z - s.world.self.position.z) <= 2.5));
 
   const setSpawn = guard('SetSpawn-ready',
     s => available.has('SetSpawn') && canSetSpawn(s),

@@ -544,13 +544,13 @@ test('detour waypoints exhaust after 3 attempts, reporting FAILURE and transitio
   assert.equal(taskState.activeWaypoint?.z, -6);
 
   // Stall heading to Waypoint 1 -> clears waypoint, triggers Waypoint Attempt 2
-  currentTime += 800;
+  currentTime += 3000;
   adapter.update!(ctx);
   assert.equal(taskState.waypointAttempts, 2);
   assert.equal(taskState.activeWaypoint?.z, 6, 'Attempt 2 selects right waypoint (skipping left)');
 
   // Stall heading to Waypoint 2 -> clears waypoint, triggers Waypoint Attempt 3 (no new candidate)
-  currentTime += 800;
+  currentTime += 3000;
   const result = adapter.update!(ctx);
   assert.equal(taskState.waypointAttempts, 3);
   assert.equal(result?.status, 'FAILURE', 'Exhausted detour waypoints reports FAILURE');

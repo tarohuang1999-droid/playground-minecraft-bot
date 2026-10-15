@@ -445,8 +445,9 @@ export class NavigationRecoveryCoordinator {
       }
     }
 
-    // 6. Check if stalled (1500ms initial stall, 800ms for retries within recovery)
-    const stallThreshold = taskState?.recoveryActive ? 800 : 1500;
+    // 6. Check if stalled (3000ms for active waypoint, 800ms for retries, 1500ms initial stall)
+    const isNavigatingWaypoint = !!taskState?.activeWaypoint;
+    const stallThreshold = isNavigatingWaypoint ? 3000 : (taskState?.recoveryActive ? 800 : 1500);
     const stalledByTime = (now - this.lastProgressTime) >= stallThreshold;
     const stalledByPath = this.pathStatus === 'noPath' || this.pathStatus === 'timeout' || this.pathResetReason === 'stuck';
 
@@ -486,15 +487,20 @@ export class NavigationRecoveryCoordinator {
           taskState.waypointPhase = 'none';
         }
 
-        // Try Micro-Unstuck (up to 3 attempts)
-        if (taskState.microUnstuckAttempts < 3) {
+        // Try Micro-Unstuck (up to 3 attempts, strictly before detour waypoints)
+        if (!taskState.microUnstuckDone && taskState.microUnstuckAttempts < 3 && taskState.waypointAttempts === 0) {
           const started = startMicroUnstuck(this.bot, taskState, now, this.logger);
           if (started) {
             return { isStuckHandling: true };
           }
+          taskState.microUnstuckDone = true;
+          taskState.microUnstuckAttempts = 3;
         }
 
-        // Micro-Unstuck exhausted or cannot start: Try Detour Waypoint (up to 3 attempts)
+        // Micro-Unstuck exhausted or skipped: Try Detour Waypoint (up to 3 attempts)
+        taskState.microUnstuckDone = true;
+        taskState.microUnstuckAttempts = 3;
+
         if (targetPos && currentPos && taskState.waypointAttempts < 3) {
           taskState.waypointAttempts++;
           const cand = findDetourWaypoint(this.bot, currentPos, targetPos, taskState, this.logger);
