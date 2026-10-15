@@ -319,12 +319,54 @@
 
 ---
 
-## Stage 14: 綜合整合與端到端驗收測試 (Integration & Handoff Harness)
+## Stage 14: 導航演算法優化 (Bug Algorithm 混合架構、局部脫困微調、白名單搭橋破障與失敗記憶)
 
 ### 14.1 階段目標
+實作「外層蟲形演算法（Bug Algorithm Macro Planner）」與「內層受控 A*（Micro Pathfinder）」的雙層混合導航引擎。
+1. 解決門框、方塊邊緣與動物實體推擠之微卡頓（400ms 水平碰撞自動微幅側移與偏轉脫困）。
+2. 解決中長距離連續高牆、巨型洞窟與斷崖卡死問題（前方 10 格射線障礙偵測，沿障礙法向量側向產生 6~10 格中繼點 Waypoint 繞行）。
+3. 整合受控的白名單挖掘（`canDig` 泥土/沙石/樹葉）與搭建（`allowPlace` 泥土/鵝卵石搭橋），並隨 `HAND` 資源鎖動態降級。
+4. 導入失敗嘗試記憶快取（`ObstacleMemory`）與 3 次無效繞行中斷機制；繞路 3 次距離未縮短時自動中斷轉為 `STAY` 並聊天回報主人，支援 `!continue` 擴大半徑重新嘗試。
+
+### 14.2 交付檔案清單
+- 參考設計規格：`docs/sys-design/system-design-pathfinder.md`。
+- 更新 `src/actions/navigation.ts`：
+  - 建立 `BugNavigator` 狀態機（`DIRECT_TRANSIT`、`MICRO_UNSTUCK`、`WAYPOINT_DETOUR`、`BLOCKED_REPORT`）。
+  - 更新 `setupMovements`：注入 `DIG_WHITELIST`（泥土、沙子、樹葉、鵝卵石，禁挖礦石與結構）與 `PLACE_WHITELIST`（鵝卵石、泥土）。
+  - 連動 `HAND` 通道鎖定：若主手被佔用（如進食、戰鬥），自動降級關閉 `canDig` 與 `allowPlace`。
+  - 實作 `MicroUnstuck` 邏輯：檢測微碰撞後執行小步側向偏轉或跳躍。
+  - 實作 `ObstacleMemory`：記錄失敗座標與繞行側向（左/右），避免重複走入死胡同。
+- 更新 `src/commands.ts`：新增 `!continue` 指令解析。
+- 更新 `src/bot.ts`：
+  - 攔截 3 次繞行失敗事件，廣播告警 `Path obstructed: 3 detour attempts failed. Say !continue to retry.`。
+  - 主人發送 `!continue` 時，重置計數並恢復原任務，以擴大之側向步長（12 格）嘗試大範圍繞道。
+- 新增 `test/unit/pathfinder-bug.test.ts`：
+  - 驗證前方 10 格射線檢測巨牆與懸崖。
+  - 驗證挖掘白名單（`dirt` 允許，`diamond_ore` / `oak_door` 嚴禁）與搭建白名單。
+  - 驗證微卡頓碰撞後 400ms 自動觸發微調側移。
+  - 驗證 3 次無效繞行中斷機制與廣播回報。
+  - 驗證 `ObstacleMemory` 排除失敗側向，自動選擇相反方向繞行。
+  - 驗證 `!continue` 指令重置失敗次數並恢復導航。
+
+### 14.3 實作重點與限制
+- **外層巨觀中繼點、內層微觀 A* 點對點**：不重寫 A*，僅用狀態機動態切換 `GoalBlock` 中繼點，大幅節省 CPU 算力。
+- **白名單絕對防護**：嚴格禁止破壞玩家建築、箱子、門、床、礦石，背包無安全建材時嚴禁啟用 `allowPlace`。
+- **失敗防死鎖**：3 次繞道無效必須主動放棄並向主人回報，嚴禁在障礙前無限重算。
+
+### 14.4 驗收門檻 (Exit Criteria)
+- [ ] 面對連續高牆或懸崖時，機器人自動向側向取 6~10 格中繼點並引導 A* 繞過障礙。
+- [ ] 遇到單方塊泥土/樹葉阻擋時，機器人自動挖掘破障通過；遇箱子/門/礦石時嚴禁破壞，主動繞行。
+- [ ] 遭遇死胡同無法通行時，嘗試 3 次後主動中斷導航，聊天室回報 `Path obstructed...`，主人下達 `!continue` 後可擴大範圍重試。
+- [ ] `pnpm test` 全數通過，新增之單元測試無回歸。
+
+---
+
+## Stage 15: 綜合整合與端到端驗收測試 (Integration & Handoff Harness)
+
+### 15.1 階段目標
 建立自動化與實機整合測試腳本 (`test/integration/handoff-harness.ts`)，針對所有跨狀態搶佔、極端邊界與長時間運行穩定度進行最終驗收。
 
-### 14.2 必測綜合情境清單 (End-to-End Verification Matrix)
+### 15.2 必測綜合情境清單 (End-to-End Verification Matrix)
 
 | 測試編號 | 測試場景描述 | 預期行為與資源鎖轉移軌跡 |
 | :--- | :--- | :--- |
@@ -333,6 +375,7 @@
 | **E2E-03** | **Return 長程任務中遇襲與戰後恢復** | 執行 `!return` 途中遭遇怪物 → `Combat(80)` 搶佔擊殺怪物 → 戰鬥結束後自動無縫恢復返回基地，抵達後切換為 `STAY`。 |
 | **E2E-04** | **死亡與斷線重置 (Session Generation Fencing)** | Bot 在 `Combat` 或 `Eat` 進行到一半時執行 `/kill` → `sessionGeneration` 遞增、所有鎖清空 → 重生後處於乾淨狀態，無殘留報錯或鬼畜移動。 |
 | **E2E-05** | **10Hz 迴圈效能與記憶體監控** | 連續運行 10 分鐘，經歷 20 次以上狀態切換：EventEmitter 監聽器數量無洩漏（無 `MaxListenersExceededWarning`），單輪 Tick 決策耗時 `< 5ms`。 |
+| **E2E-06** | **Bug Algorithm 繞行與死胡同回報** | 面對長牆障礙時自動生成中繼點繞行；進入死胡同嘗試 3 次後主動中斷發送回報，接收 `!continue` 後正確復原。 |
 
 ---
 
