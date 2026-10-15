@@ -501,6 +501,7 @@ export interface NavigationCallbacks {
   onReturnArrived?: () => void;
   onSpawnSet?: (pos: { x: number; y: number; z: number }) => void;
   onSpawnFailed?: () => void;
+  onNavigationFailed?: (reason: string, missionId: string) => void;
   clock?: { now(): number };
 }
 
@@ -582,7 +583,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           const rec = coordinator.update(() => {
             if (activeGoal) bot.pathfinder?.setGoal(activeGoal, true);
           });
-          if (rec.actionResult) return rec.actionResult;
+          if (rec.actionResult) {
+            if (rec.actionResult.status === 'FAILURE') {
+              callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
+            }
+            return rec.actionResult;
+          }
           if (rec.isStuckHandling) return;
 
           const snapshot = ctx.getSnapshot();
@@ -969,7 +975,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               bot.pathfinder?.setGoal(activeGoal, false);
             }
           });
-          if (rec.actionResult) return rec.actionResult;
+          if (rec.actionResult) {
+            if (rec.actionResult.status === 'FAILURE') {
+              callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
+            }
+            return rec.actionResult;
+          }
           if (rec.isStuckHandling) return;
 
           const snapshot = ctx.getSnapshot();
@@ -1085,7 +1096,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               bot.pathfinder?.setGoal(activeGoal, false);
             }
           });
-          if (rec.actionResult) return rec.actionResult;
+          if (rec.actionResult) {
+            if (rec.actionResult.status === 'FAILURE') {
+              callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
+            }
+            return rec.actionResult;
+          }
           if (rec.isStuckHandling) return;
 
           const snapshot = ctx.getSnapshot();

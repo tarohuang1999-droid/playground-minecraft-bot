@@ -62,41 +62,94 @@ export function checkLateralSafety(
   return { safe: true, lateralVec: { dx, dz } };
 }
 
+export function isSafeBackward(bot: NavigationBot): boolean {
+  if (!bot.entity?.onGround || !bot.entity.position) return false;
+  const yaw = bot.entity.yaw ?? 0;
+  // Minecraft back vector: yaw 0 faces -z, so back is +z
+  const bx = Math.sin(yaw) * 0.4;
+  const bz = Math.cos(yaw) * 0.4;
+  const curPos = bot.entity.position;
+  const targetX = curPos.x + bx;
+  const targetY = curPos.y;
+  const targetZ = curPos.z + bz;
+
+  const support = safeBlockAt(bot, { x: targetX, y: targetY - 0.5, z: targetZ });
+  if (!support || !isSafeSupportBlock(support)) return false;
+
+  const foot = safeBlockAt(bot, { x: targetX, y: targetY + 0.1, z: targetZ });
+  if (!foot || !isPassableBlock(foot)) return false;
+
+  const head = safeBlockAt(bot, { x: targetX, y: targetY + 1.1, z: targetZ });
+  if (!head || !isPassableBlock(head)) return false;
+
+  return true;
+}
+
 export function startMicroUnstuck(
   bot: NavigationBot,
   taskState: NavigationTaskState,
   now: number,
   logger?: NavigationLogger
 ): boolean {
-  if (taskState.microUnstuckDone) return false;
-  taskState.microUnstuckDone = true;
+  if (taskState.microUnstuckAttempts >= 3) {
+    taskState.microUnstuckDone = true;
+    return false;
+  }
 
   const left = checkLateralSafety(bot, 'left');
   const right = checkLateralSafety(bot, 'right');
 
   let chosenSide: 'left' | 'right' | null = null;
-  if (left.safe) {
-    chosenSide = 'left';
-  } else if (right.safe) {
-    chosenSide = 'right';
+  // If this is a retry and previous attempt used preferredSide, alternate if alternative is safe
+  if (taskState.microUnstuckAttempts > 0 && taskState.preferredSide) {
+    const otherSide = taskState.preferredSide === 'left' ? 'right' : 'left';
+    const otherSafe = otherSide === 'left' ? left.safe : right.safe;
+    const prefSafe = taskState.preferredSide === 'left' ? left.safe : right.safe;
+    if (otherSafe) {
+      chosenSide = otherSide;
+    } else if (prefSafe) {
+      chosenSide = taskState.preferredSide;
+    }
+  } else {
+    if (left.safe) {
+      chosenSide = 'left';
+    } else if (right.safe) {
+      chosenSide = 'right';
+    }
   }
 
   if (!chosenSide) {
     logger?.info('[recovery] micro-unstuck skipped: no safe lateral ground or cliff detected');
+    taskState.microUnstuckAttempts++;
+    taskState.microUnstuckDone = (taskState.microUnstuckAttempts >= 3);
     return false;
   }
+
+  taskState.microUnstuckAttempts++;
+  taskState.microUnstuckDone = (taskState.microUnstuckAttempts >= 3);
 
   // Pathfinder and manual controls must never compete simultaneously
   try {
     (bot.pathfinder as any)?.stop?.();
   } catch {}
+  try {
+    (bot as any).clearControlStates?.();
+  } catch {}
 
+  // Phase 1: Disengage (200ms) - back off + lateral to pull away from corner edge
+  const canBack = isSafeBackward(bot);
+  if (canBack) {
+    bot.setControlState?.('back', true);
+  }
   bot.setControlState?.(chosenSide, true);
+
   taskState.microUnstuckActive = true;
-  taskState.microUnstuckUntil = now + 500;
+  taskState.microUnstuckPhase = 'disengage';
+  taskState.microUnstuckPhaseUntil = now + 200;
+  taskState.microUnstuckUntil = now + 450; // total 450ms (~500ms limit)
   taskState.preferredSide = chosenSide;
 
-  logger?.info(`[recovery] micro-unstuck started: side=${chosenSide}, duration=500ms`);
+  logger?.info(`[recovery] micro-unstuck attempt ${taskState.microUnstuckAttempts}/3 started: side=${chosenSide}, back=${canBack}`);
   return true;
 }
 
@@ -110,10 +163,29 @@ export function stepMicroUnstuck(
     return { active: false, finishedJustNow: false };
   }
 
+  const side = taskState.preferredSide ?? 'left';
+
+  // Phase 2 completion or total time expired
   if (now >= taskState.microUnstuckUntil) {
     cancelMicroUnstuck(bot, taskState);
-    logger?.info('[recovery] micro-unstuck completed; restored controls');
+    logger?.info(`[recovery] micro-unstuck attempt ${taskState.microUnstuckAttempts}/3 completed; restored controls`);
     return { active: false, finishedJustNow: true };
+  }
+
+  // Transition from Phase 1 (Disengage) to Phase 2 (Clearance)
+  if (taskState.microUnstuckPhase === 'disengage') {
+    if (now >= taskState.microUnstuckPhaseUntil) {
+      bot.setControlState?.('back', false);
+      bot.setControlState?.('forward', true);
+      bot.setControlState?.(side, true);
+      if (bot.entity?.isCollidedHorizontally) {
+        bot.setControlState?.('jump', true);
+      }
+      taskState.microUnstuckPhase = 'clearance';
+      taskState.microUnstuckPhaseUntil = taskState.microUnstuckUntil;
+      logger?.info('[recovery] micro-unstuck entered phase 2: outer arc clearance forward + side');
+    }
+    return { active: true, finishedJustNow: false };
   }
 
   return { active: true, finishedJustNow: false };
@@ -133,6 +205,7 @@ export function cancelMicroUnstuck(
     bot.setControlState?.('forward', false);
     bot.setControlState?.('back', false);
     taskState.microUnstuckActive = false;
+    taskState.microUnstuckPhase = 'none';
   }
 }
 
@@ -269,11 +342,20 @@ export class NavigationRecoveryCoordinator {
           };
         }
 
-        if (!taskState.microUnstuckDone) {
+        if (taskState.microUnstuckAttempts < 3) {
           const started = startMicroUnstuck(this.bot, taskState, now, this.logger);
           if (started) {
             return { isStuckHandling: true };
           }
+        } else {
+          this.logger?.warn('[recovery] micro-unstuck attempts exhausted (3/3), path obstructed');
+          return {
+            actionResult: {
+              status: 'FAILURE',
+              reason: 'Path obstructed. Stopped; send !follow, !come or !return to retry.',
+            },
+            isStuckHandling: true,
+          };
         }
       }
     }
@@ -285,6 +367,7 @@ export class NavigationRecoveryCoordinator {
         if (now - taskState.normalMovingStart >= 5000 && netDist >= 6.0) {
           this.logger?.info('[recovery] recovery completed successfully, net displacement >= 6 blocks in >= 5s');
           taskState.recoveryActive = false;
+          taskState.microUnstuckAttempts = 0;
           taskState.microUnstuckDone = false;
           taskState.waypointAttempts = 0;
           taskState.normalMovingStart = 0;

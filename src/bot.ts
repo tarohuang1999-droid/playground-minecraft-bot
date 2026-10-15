@@ -53,6 +53,12 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       sample();
       runner.requestUrgentTick();
     },
+    onNavigationFailed: (reason, missionId) => {
+      logger?.warn(`[navigation] navigation failed for mission "${missionId}": ${reason}`);
+      runner.enqueue({ type: 'intent', mode: 'STAY' });
+      chat.enqueue(reason);
+      runner.requestUrgentTick();
+    },
   });
   const inventory = createInventoryAdapters(bot as any, logger);
   const combat = createCombatAdapter(bot as any, logger, {

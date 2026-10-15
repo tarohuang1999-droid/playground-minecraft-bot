@@ -43,6 +43,9 @@ export interface NavigationTaskState {
   recoveryDeadline: number;
   microUnstuckDone: boolean;
   microUnstuckActive: boolean;
+  microUnstuckPhase: 'disengage' | 'clearance' | 'none';
+  microUnstuckPhaseUntil: number;
+  microUnstuckAttempts: number;
   microUnstuckUntil: number;
   waypointAttempts: number;
   preferredSide: 'left' | 'right' | null;
@@ -64,6 +67,9 @@ export function createNavigationTaskState(missionId: string, canDig = false, all
     recoveryDeadline: 0,
     microUnstuckDone: false,
     microUnstuckActive: false,
+    microUnstuckPhase: 'none',
+    microUnstuckPhaseUntil: 0,
+    microUnstuckAttempts: 0,
     microUnstuckUntil: 0,
     waypointAttempts: 0,
     preferredSide: null,

@@ -141,17 +141,23 @@ test('legal in-flight actions (digging, placing, door opening) and arrival do no
   adapter.cancel!();
 });
 
-test('micro-unstuck triggers on 1500ms stall, executes for exactly 500ms, and restores Goal', () => {
+test('micro-unstuck executes two-phase corner disengage (back+side then forward+side) and retries up to 3 times', () => {
   let currentTime = 1000;
   const bot = new FakeRecoveryBot();
-  // Setup safe terrain around bot at (0, 64, 0)
-  // yaw = 0 -> facing south (+z). left is east (+x), right is west (-x)
-  // Left target at (0.5, 64, 0): support at (0, 63, 0)
   bot.setBlock(0, 63, 0, { name: 'stone', boundingBox: 'block' });
   bot.setBlock(1, 63, 0, { name: 'stone', boundingBox: 'block' });
   bot.setBlock(-1, 63, 0, { name: 'stone', boundingBox: 'block' });
 
-  const nav = createNavigation(bot as any, undefined, { clock: { now: () => currentTime } });
+  let failedReason: string | null = null;
+  let failedMission: string | null = null;
+
+  const nav = createNavigation(bot as any, undefined, {
+    clock: { now: () => currentTime },
+    onNavigationFailed: (reason, missionId) => {
+      failedReason = reason;
+      failedMission = missionId;
+    },
+  });
   const board = createBlackboard('owner');
   const world = createWorld('owner');
   world.master = { username: 'owner', entityId: 2, position: { x: 10, y: 64, z: 0 }, distance: 10 };
@@ -169,36 +175,68 @@ test('micro-unstuck triggers on 1500ms stall, executes for exactly 500ms, and re
   const adapter = nav.normalFollow(req);
   adapter.start(ctx);
 
-  // Stationary for 1500ms
+  // 1. Initial 1500ms stall: triggers Attempt 1 (Phase 1: Disengage)
   currentTime += 1500;
   adapter.update!(ctx);
 
   const taskState = nav.getTaskState()!;
   assert.equal(taskState.recoveryActive, true, 'Recovery must activate upon 1500ms stall');
-  assert.equal(taskState.microUnstuckDone, true, 'Micro-unstuck marked done');
+  assert.equal(taskState.microUnstuckAttempts, 1, 'Attempt 1 started');
   assert.equal(taskState.microUnstuckActive, true, 'Micro-unstuck currently active');
-  assert.equal(bot.stopsCalled, 1, 'Pathfinder must be stopped before manual control');
-  assert.equal(bot.controlStates.left, true, 'Left lateral control engaged');
+  assert.equal(taskState.microUnstuckPhase, 'disengage', 'Phase 1 is disengage');
+  assert.equal(bot.stopsCalled, 1, 'Pathfinder stopped before manual control');
+  assert.equal(bot.controlStates.back, true, 'Phase 1 engages backward to pull away from corner');
+  assert.equal(bot.controlStates.left, true, 'Phase 1 engages lateral direction');
 
-  // Step while micro-unstuck is in-flight (200ms elapsed < 500ms)
+  // 2. Step into Phase 2 (Clearance) after 200ms
   currentTime += 200;
   adapter.update!(ctx);
   assert.equal(taskState.microUnstuckActive, true);
-  assert.equal(bot.controlStates.left, true);
+  assert.equal(taskState.microUnstuckPhase, 'clearance', 'Transitioned to phase 2 clearance');
+  assert.equal(bot.controlStates.back, false, 'Back key released in phase 2');
+  assert.equal(bot.controlStates.forward, true, 'Forward key engaged in phase 2');
+  assert.equal(bot.controlStates.left, true, 'Lateral key retained for outer arc');
 
-  // 500ms elapsed: micro-unstuck completes
-  currentTime += 300;
+  // 3. Step to completion (+250ms, total 450ms)
+  currentTime += 250;
   const goalsBeforeFinish = bot.goalsSet.length;
   adapter.update!(ctx);
 
-  assert.equal(taskState.microUnstuckActive, false, 'Micro-unstuck finished after 500ms');
-  assert.equal(bot.controlStates.left, false, 'Manual control state cleared');
-  assert.equal(bot.goalsSet.length, goalsBeforeFinish + 1, 'Original goal restored once to pathfinder');
+  assert.equal(taskState.microUnstuckActive, false, 'Attempt 1 finished');
+  assert.equal(bot.controlStates.left, false, 'Controls cleared on completion');
+  assert.equal(bot.controlStates.forward, false, 'Forward cleared');
+  assert.equal(bot.goalsSet.length, goalsBeforeFinish + 1, 'Original goal restored to pathfinder');
 
-  // Stalling again does NOT repeat micro-unstuck within the same recovery session
+  // 4. Stall again: Attempt 2 triggers
   currentTime += 1600;
   adapter.update!(ctx);
-  assert.equal(bot.controlStates.left, false, 'Micro-unstuck must run at most 1 time per recovery');
+  assert.equal(taskState.microUnstuckAttempts, 2, 'Attempt 2 triggered on subsequent stall');
+  assert.equal(taskState.microUnstuckActive, true);
+
+  // Complete Attempt 2
+  currentTime += 450;
+  adapter.update!(ctx);
+  assert.equal(taskState.microUnstuckActive, false, 'Attempt 2 finished');
+
+  // 5. Stall again: Attempt 3 triggers
+  currentTime += 1600;
+  adapter.update!(ctx);
+  assert.equal(taskState.microUnstuckAttempts, 3, 'Attempt 3 triggered on subsequent stall');
+  assert.equal(taskState.microUnstuckActive, true);
+
+  // Complete Attempt 3
+  currentTime += 450;
+  adapter.update!(ctx);
+  assert.equal(taskState.microUnstuckActive, false, 'Attempt 3 finished');
+  assert.equal(taskState.microUnstuckDone, true, 'All 3 attempts done');
+
+  // 6. Stall once more after 3 attempts exhausted: must return FAILURE and call onNavigationFailed
+  currentTime += 1600;
+  const failResult = adapter.update!(ctx);
+  assert.equal(failResult?.status, 'FAILURE');
+  assert.match(failResult?.reason ?? '', /Path obstructed/);
+  assert.equal(failedMission, 'm1');
+  assert.match(failedReason ?? '', /Path obstructed/);
 
   adapter.cancel!();
 });
