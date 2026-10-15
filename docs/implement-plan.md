@@ -1,11 +1,13 @@
-# Implementation Plan: Companion Bot Core (v1.0)
+# Implementation Plan: Companion Bot Core 與有界導航
 
 > 2026-10-15：依使用者最新指示，全專案新實作使用 TypeScript；下列 `.js` 交付路徑對應為 `.ts`。Stage 1、2、3、4、5 已完成單元與整合驗收，包含跟隨、開門防抖動、掉落物撿拾冷卻、自動穿裝、自動進食與雙通道並行（邊走邊吃）。
 
+> 2026-10-16：Stage 14 改採「指令切換白名單挖放＋一次微脫困＋最多三次局部繞路」。本次僅更新規格；新增項目尚未實作或驗收。數值與契約以 [導航設計](sys-design/system-design-pathfinder.md) 為準；該文件取代 v1.1 中導航動態 canDig 與挖放取消後無條件交接的舊規則。既有勾選項保留為歷史驗收紀錄，不代表新規格已通過。
+
 - **目標讀者**：AI Coding Agent / 實作工程師
-- **前置依賴規範**：動工前必須完整讀取 `docs/sys-design/system-design-v1.1.md`，嚴格遵守其中之 `[RULE-01]` 至 `[RULE-10]`。
+- **前置依賴規範**：動工前讀取 `docs/sys-design/system-design-v1.1.md`；Stage 14 另讀導航設計，其明列取代的能力與交接契約優先，其餘規則沿用。
 - **核心開發原則**：
-  1. **嚴禁跨階段偷跑 (No Jumping Ahead)**：必須依序完成 Stage 1 至 Stage 8。每個 Stage 結束時必須通過該階段定義的「驗收門檻 (Exit Criteria)」方可進入下一階段。
+  1. **嚴禁跨階段偷跑 (No Jumping Ahead)**：依各階段依賴實作；本次從 Stage 14 著手，依 14.1 至 14.5 順序完成，再進入 Stage 15 回歸驗收。每個 Stage 結束時必須通過該階段定義的「驗收門檻 (Exit Criteria)」方可進入下一階段。
   2. **先單元測試、後接實機 (Test-First Before Mineflayer)**：Stage 1 與 Stage 2 完全不依賴真實 Minecraft 伺服器，必須以純 Node.js (`pnpm test`) 100% 跑通。
   3. **禁止引入禁用插件**：全過程嚴禁安裝或引入 `mineflayer-pvp`、`mineflayer-statemachine`、`mistreevous`，嚴禁使用 `pathfinder.goto()`。
 
@@ -28,7 +30,7 @@
 
 ### 1.3 實作重點與限制
 - BT 節點不得包含任何非同步 (`async/await`) 邏輯，僅收集並回傳當輪 `ActionRequest`。
-- `executor.ts` 處理搶佔時，呼叫 `adapter.cancel()` 後只需經過 1 個 Tick 週期即可將資源交給新勝者，**嚴禁等待舊 Action 的懸空 Promise resolve/reject**。
+- `executor.ts` 處理搶佔時，對已同步停止副作用的 adapter，呼叫 `cancel()` 後經過 1 個 Tick fence 即可交接，不等待只剩結果的懸空 Promise。Stage 14 挖放若仍有插件內部操作，必須先確認不會再操作身體才交出衝突資源；不能只靠外層 token 丟棄回傳值。
 
 ### 1.4 驗收門檻 (Exit Criteria)
 執行 `pnpm test` 全數通過，且必須覆蓋以下測試案例：
@@ -71,7 +73,7 @@
 
 ### 3.3 實作重點與限制
 - **嚴禁使用 `pathfinder.goto()`**，統一使用 `bot.pathfinder.setGoal(new GoalFollow(masterEntity, range), true)`。
-- **禁止每輪重設 Goal (`[RULE-07]`)**：同一個 `runId` 持續期間，由於 `dynamic = true` 已交由 Pathfinder 內部追蹤主人位置，`update()` 時不得重複呼叫 `setGoal`。
+- **禁止每輪重設 Goal (`[RULE-07]`)**：同一個 `runId` 持續期間，由於 `dynamic = true` 已交由 Pathfinder 內部追蹤主人位置，`update()` 不得無條件重複呼叫 `setGoal`。Stage 14 僅允許有預算的 recovery 狀態轉移及設定變更重啟；`partial` 期間延續搜尋。
 - **雙門檻遲滯 (Hysteresis)**：
   - `NormalFollow`：距離主人 `> 5` 格時進入 (`RUNNING`)，靠近至 `<= 3` 格時完成 (`SUCCESS`) 並呼叫 `setGoal(null)`。
   - `CatchUpFollow`：距離主人 `> 16` 格時以 Priority 40 進入，靠近至 `<= 6` 格時交棒回一般狀態。
@@ -108,21 +110,22 @@
 ## Stage 5: 身體維護子樹：自動裝備與進食 (Maintenance: Auto-Equip & Eat)
 
 ### 5.1 階段目標
-啟用頂層 `Parallel` 的第二條分支 `maintenance.ts`，實作只佔用 `{HAND, INVENTORY}` 的 `EquipBest` (Priority 50)、`RoutineEat` (Priority 60) 與 `EmergencyEat` (Priority 90)，完成**「邊跟隨邊吃飯」的雙通道並行（Action Blending）**與**動態挖掘降級（Dynamic `canDig` Downgrade）**。
+啟用頂層 `Parallel` 的第二條分支 `maintenance.ts`，實作只佔用 `{HAND, INVENTORY}` 的 `EquipBest` (Priority 50)、`RoutineEat` (Priority 60) 與 `EmergencyEat` (Priority 90)，完成預設禁挖放模式下的**「邊跟隨邊吃飯」雙通道並行**。2026-10-16 修訂：取消依 HAND 空閒自動開挖的舊規則；主人啟用挖放時改依 Stage 14 固定資源契約執行。
 
 ### 5.2 交付檔案清單
 - `src/actions/inventory.ts`：實作 `Eat` 與 `EquipBest` Action Adapters。
 - 更新 `src/bt/subtrees/maintenance.ts`：掛載 `EmergencyEat (90)`、`RoutineEat (60)` 與 `EquipBest (50)`。
-- 更新 `src/actions/navigation.ts`：連動 `HAND` 鎖狀態，動態切換 `movements.canDig`。
+- 更新 `src/actions/navigation.ts`：預設固定禁挖放；Stage 14 加入主人授權模式，禁止依 HAND 空閒自動開挖。
 - `test/unit/maintenance.test.ts`：單元測試驗證進食、穿裝與雙通道資源無衝突並行。
 
 ### 5.3 實作重點與限制
 - **`consume()` 懸空 Promise 強制隔離 (`[RULE-04]`, `[RULE-05]`)**：
   - `Eat` 啟動時先 `await bot.equip(food, 'hand')`，再呼叫 `bot.consume()`。
   - 當 `Eat` 被高等級動作搶佔時，`cancel()` 呼叫 `bot.deactivateItem()`。`executor` 經過 50ms 即將 `{HAND, INVENTORY}` 移交給新動作，舊 `consume()` 的 Promise 透過 `ctx.isActive()` 靜默忽略。
-- **動態挖掘權限降級**：
-  - 當 `Follow` 單獨運行時（`HAND` 空閒），允許 `movements.canDig = true` 以跨越簡單障礙。
-  - 當 `Eat` 或 `EquipBest` 取得 `{HAND, INVENTORY}` 時，`navigation.ts` 同步將 `movements.canDig = false`，確保走路過程不會揮手挖方塊打斷進食封包。
+- **固定導航能力與資源契約**：
+  - dig、bridge 均 off 時，導航固定禁挖放，持有 `{MOVE, LOOK}`，可與進食並行。
+  - 任一開關 on 時，適用導航的整個 run 持有 `{MOVE, LOOK, HAND, INVENTORY}`；進食／裝備透過既有優先級搶佔，清理確認後交接，完成後恢復原導航任務。
+  - `canDig = false` 只影響規劃，不能當作取消已開始挖掘的證據；額度與執行邊界檢查依 Stage 14。
 - **防呆互斥**：`EquipBest (50)` 與 `RoutineEat (60)` 皆需要 `{HAND, INVENTORY}`，因此換裝不會打斷正在進行的進食。
 
 ### 5.4 驗收門檻 (Exit Criteria)
@@ -283,6 +286,7 @@
 - **終止條件**：
   1. 成功抵達基地（距離 <= 2.0 格），自動切換為 `STAY`，聊天室發送 `Arrived at base.`。
   2. 被主人新的明確指令覆蓋（如 `!follow`、`!come`、`!unfollow`、`!stop`）。
+  3. Stage 14 recovery 次數／期限耗盡：回報一次並轉為 STAY，禁止 BT 立即重建同一失敗任務；舊回報不得覆蓋新指令。
 
 ### 12.4 驗收門檻 (Exit Criteria)
 - [x] 主人發送 `!return`，機器人開始導航前往基地（或重生點）。
@@ -319,45 +323,100 @@
 
 ---
 
-## Stage 14: 導航演算法優化 (Bug Algorithm 混合架構、局部脫困微調、白名單搭橋破障與失敗記憶)
+## Stage 14: 有界導航恢復與指令控制的白名單挖放
 
-### 14.1 階段目標
-實作「外層蟲形演算法（Bug Algorithm Macro Planner）」與「內層受控 A*（Micro Pathfinder）」的雙層混合導航引擎。
-1. 解決門框、方塊邊緣與動物實體推擠之微卡頓（400ms 水平碰撞自動微幅側移與偏轉脫困）。
-2. 解決中長距離連續高牆、巨型洞窟與斷崖卡死問題（前方 10 格射線障礙偵測，沿障礙法向量側向產生 6~10 格中繼點 Waypoint 繞行）。
-3. 整合受控的白名單挖掘（`canDig` 泥土/沙石/樹葉）與搭建（`allowPlace` 泥土/鵝卵石搭橋），並隨 `HAND` 資源鎖動態降級。
-4. 導入失敗嘗試記憶快取（`ObstacleMemory`）與 3 次無效繞行中斷機制；繞路 3 次距離未縮短時自動中斷轉為 `STAY` 並聊天回報主人，支援 `!continue` 擴大半徑重新嘗試。
+**狀態：待實作。** 詳細行為與預算以 [system-design-pathfinder.md](sys-design/system-design-pathfinder.md) 為唯一來源，避免兩份文件各自維護不同數值。
 
-### 14.2 交付檔案清單
-- 參考設計規格：`docs/sys-design/system-design-pathfinder.md`。
-- 更新 `src/actions/navigation.ts`：
-  - 建立 `BugNavigator` 狀態機（`DIRECT_TRANSIT`、`MICRO_UNSTUCK`、`WAYPOINT_DETOUR`、`BLOCKED_REPORT`）。
-  - 更新 `setupMovements`：注入 `DIG_WHITELIST`（泥土、沙子、樹葉、鵝卵石，禁挖礦石與結構）與 `PLACE_WHITELIST`（鵝卵石、泥土）。
-  - 連動 `HAND` 通道鎖定：若主手被佔用（如進食、戰鬥），自動降級關閉 `canDig` 與 `allowPlace`。
-  - 實作 `MicroUnstuck` 邏輯：檢測微碰撞後執行小步側向偏轉或跳躍。
-  - 實作 `ObstacleMemory`：記錄失敗座標與繞行側向（左/右），避免重複走入死胡同。
-- 更新 `src/commands.ts`：新增 `!continue` 指令解析。
-- 更新 `src/bot.ts`：
-  - 攔截 3 次繞行失敗事件，廣播告警 `Path obstructed: 3 detour attempts failed. Say !continue to retry.`。
-  - 主人發送 `!continue` 時，重置計數並恢復原任務，以擴大之側向步長（12 格）嘗試大範圍繞道。
-- 新增 `test/unit/pathfinder-bug.test.ts`：
-  - 驗證前方 10 格射線檢測巨牆與懸崖。
-  - 驗證挖掘白名單（`dirt` 允許，`diamond_ore` / `oak_door` 嚴禁）與搭建白名單。
-  - 驗證微卡頓碰撞後 400ms 自動觸發微調側移。
-  - 驗證 3 次無效繞行中斷機制與廣播回報。
-  - 驗證 `ObstacleMemory` 排除失敗側向，自動選擇相反方向繞行。
-  - 驗證 `!continue` 指令重置失敗次數並恢復導航。
+範圍為 NormalFollow、CatchUpFollow、ComeOnce、ReturnToBase；其他 action 的導航固定禁挖放，保留自己的逾時／失敗策略。不新增障礙記憶、`!continue`、worker、自製 A* 或通用任務框架。只保留當次任務的有限狀態。
 
-### 14.3 實作重點與限制
-- **外層巨觀中繼點、內層微觀 A* 點對點**：不重寫 A*，僅用狀態機動態切換 `GoalBlock` 中繼點，大幅節省 CPU 算力。
-- **白名單絕對防護**：嚴格禁止破壞玩家建築、箱子、門、床、礦石，背包無安全建材時嚴禁啟用 `allowPlace`。
-- **失敗防死鎖**：3 次繞道無效必須主動放棄並向主人回報，嚴禁在障礙前無限重算。
+### 14.1 相容性驗證與取消契約
 
-### 14.4 驗收門檻 (Exit Criteria)
-- [ ] 面對連續高牆或懸崖時，機器人自動向側向取 6~10 格中繼點並引導 A* 繞過障礙。
-- [ ] 遇到單方塊泥土/樹葉阻擋時，機器人自動挖掘破障通過；遇箱子/門/礦石時嚴禁破壞，主動繞行。
-- [ ] 遭遇死胡同無法通行時，嘗試 3 次後主動中斷導航，聊天室回報 `Path obstructed...`，主人下達 `!continue` 後可擴大範圍重試。
-- [ ] `pnpm test` 全數通過，新增之單元測試無回歸。
+先驗證目前安裝的 pathfinder 版本，避免在錯誤 API 假設上建立功能。以真實插件的規劃／執行流程配合可控制的 equip/dig/place 完成時機驗證，不能只 mock 自己的 adapter。
+
+交付：
+
+- 確認 `scafoldingBlocks`、挖掘排除與安全判定的有效用法；禁用 `allowPlace` 假想 API，移除依 HAND 空閒自動開挖的行為。
+- 驗證正常搜尋與恢復探測可分段且不並行；不能用同步迴圈推完 generator，也不能用 `goto()`。
+- 在實際操作派發邊界驗證白名單、操作額度與授權，包含插件自動重算後的路徑。
+- 驗證 cancel、off、死亡／重連後，插件內部延遲回呼不會繼續 equip/dig/place。必要時加入最小、受版本控制的依賴相容性修補；不直接改未追蹤的 node_modules。
+- 僅在不能同步確認停止時，擴充 `src/execution/types.ts`、`executor.ts` 的取消完成確認；以設計規定的期限轉停止故障，不在逾時後強行交出衝突資源。保留其他已靜默 adapter 的一 tick fence 與懸空結果隔離。
+
+驗收：
+
+- [ ] 真實 Movements 的禁挖放、白名單與自動重算限制有效。
+- [ ] 真實插件執行鏈的 pending equip、dig、place 在取消／失效後不能對新 run 寫入。
+- [ ] 取消未確認前不啟動衝突動作；確認逾時可回報、不中斷決策迴圈、不強行放鎖。
+- [ ] 原有 executor/fence 測試仍通過；只剩結果的懸空 Promise 不阻塞交接。
+
+此小節未通過時，挖放開關不得作為可用功能交付；明確記錄限制，不以「旗標已切換」代替停止證據。
+
+### 14.2 主人開關、固定資源與任務額度
+
+交付：
+
+- `src/commands.ts`：Owner 專用 `!dig on|off`、`!bridge on|off`、錯誤參數用法提示。
+- `src/blackboard.ts`、`src/bt/runner.ts`、`src/bot.ts`：預設 off 的純值設定、同輪快照一致性、status 顯示、session 重置與設定變更事件。
+- `src/policy.ts`、`src/bt/nodes.ts`、`src/bt/subtrees/work.ts`：在產生請求時選定導航資源契約；任一開關 on 則持有四項資源。不能只修改 adapter 而沿用 BT 固定的兩項資源。
+- `src/actions/navigation.ts`：設定改變取消舊 run，清理後以新契約恢復；重複相同設定不重啟。每個 adapter 明確套用 Movements，避免能力外洩至 Retreat、Combat 等行為。
+- 當次導航任務跨 run 保留挖放額度；新導航指令才重置，開關切換不重置。額度在派發前扣除，失敗不退額，最後一次已授權操作可完成，耗盡後禁止舊路徑派發其他挖放操作。
+- 沿用並擴充 `test/unit/commands.test.ts`、`navigation.test.ts`、`maintenance.test.ts`、`executor-fence.test.ts`；新增必要的插件相容性案例。
+
+驗收：
+
+- [ ] 預設 off、兩開關獨立、非 Owner 無權、無效參數不改設定。
+- [ ] off 導航不挖放且可邊走邊吃；on 導航遇進食暫停，完成後恢復。
+- [ ] 操作只限白名單、已載入方塊、可用建材與剩餘額度；自動重算不可繞過。
+- [ ] 切換開關、搶佔及 Follow/CatchUp 交替不重置額度；死亡／重連設定回到 off。
+- [ ] 檢查既有 DoorManager 的手部操作交接，避免把禁挖放誤認為沒有其他手部副作用。
+
+### 14.3 搜尋狀態與一次微脫困
+
+交付：
+
+- `navigation.ts` 改用 path_update／path_reset 與位移判斷；partial 延續搜尋，Goal 與 adapter 到達條件一致。
+- 區分搜尋、合法挖放／開門等待、移動停滯及搶佔；去除無條件同目標重算。
+- 只在 recovery 做一次安全微脫困，停下原 pathfinder 後才手動移動，結束與取消均清除控制。
+- recovery 使用注入的單調時鐘與單一任務狀態；維持原目標、起點、deadline、嘗試次數，跨 run 延續。只為測試所需抽出小型 helper，不全面重構 navigation。
+- 新增 `test/unit/navigation-recovery.test.ts`，使用可控制時鐘驗證邊界。
+
+驗收：
+
+- [ ] partial 不重置 Goal；已抵達與合法操作等待不誤判卡住。
+- [ ] 微脫困次數、時間、移動範圍符合設計；未知地形及懸崖不盲目側移。
+- [ ] 手動控制與 pathfinder 不競爭；取消後不殘留控制與監聽器。
+
+### 14.4 三次局部繞路與恢復原目標
+
+交付：
+
+- 失敗時才取有限左右候選，已載入、安全落腳、身體空間通過後，只對選中 waypoint 尋路；不建立完整邊界追蹤。
+- 開始選點即計次，最多三次，允許暫時遠離原目標；當次最多記三個嘗試點，不建立跨任務障礙記憶。
+- 繞路途中依淨位移與時間間隔檢查短通道，每次 waypoint 最多一次原目標 A* 探測；暫停 waypoint 工作，完整可行路徑才恢復原目標。
+- 套用結果前驗證 run、任務與目標仍有效；失敗探測最多恢復原 waypoint 一次，不形成無限探測循環。
+- recovery 全流程共享期限，切換狀態、搶佔、原生 reset 或新 run 不重置。只有設計定義的持續正常移動才結束 recovery，仍保留任務挖放額度。
+- `src/bot.ts`／runner 接收有任務識別的失敗結果，轉 STAY 並透過 VOICE 回報一次；BT 不重啟相同失敗任務，舊結果不覆蓋新指令。
+
+驗收：
+
+- [ ] 無候選、無路、途中停滯均計次；第三次可完成允許的探測，但絕無第四次。
+- [ ] 可在預算內繞過的長牆成功；需暫時遠離終點的路線不被距離條件誤殺。
+- [ ] 繞路途中能提早恢復原目標；探測次數、搜尋切片及非並行限制有效。
+- [ ] 重新卡住、Follow/CatchUp 切換、開關變更與搶佔不刷新預算。
+- [ ] 耗盡後停止、一次回報、無 BT 重啟；新主人指令可啟動新任務，無 `!continue`。
+
+### 14.5 Paper 驗收與資源比較
+
+- 新增 `test/integration/navigation-recovery-paper.test.ts` 或等價可重現測試腳本，涵蓋設計第六節場景。
+- 同世界、路線、庫存、實體條件比較前後，每場景至少五次；記錄完成率、搜尋／重設次數、CPU、RSS、event-loop delay、節點數與完成／放棄時間。
+- 另做十分鐘切換／取消穩定性驗證；只記數值摘要，不保存完整 A* context 或每 tick 大量日誌。5ms 搜尋切片不是整個 bot 的 CPU 上限。
+
+驗收：
+
+- [ ] `pnpm run typecheck` 與 `pnpm test` 通過，既有跟隨、進食、戰鬥、撤退與返航無回歸。
+- [ ] 開關及 pending equip/dig/place 的搶佔／停止在 Paper 上通過；白名單不被誤宣稱為建築所有權保護。
+- [ ] 死胡同依三次／期限上限停止，停止後不重算；記錄處理 deadline 時的 event-loop 延遲。
+- [ ] 正常空曠跟隨不反覆 recovery；十分鐘內監聽器與資源用量沒有持續成長。
+- [ ] 提交前後量測摘要及可達性取捨；沒有量測不宣稱省 CPU 或記憶體。
 
 ---
 
@@ -370,12 +429,14 @@
 
 | 測試編號 | 測試場景描述 | 預期行為與資源鎖轉移軌跡 |
 | :--- | :--- | :--- |
-| **E2E-01** | **Follow + Eat 並行與遇襲搶佔** | `Follow(20) + RoutineEat(60)` 並行 → 刷出殭屍 → 兩者同時被 `Combat(80)` 搶佔 → 停止進食、拔劍殺敵 → 殭屍死後恢復 `Follow(20) + RoutineEat(60)` 把飯吃完。 |
+| **E2E-01** | **禁挖放 Follow + Eat 並行與遇襲搶佔** | `Follow(20) + RoutineEat(60)` 並行 → 刷出殭屍 → 兩者同時被 `Combat(80)` 搶佔 → 停止進食、拔劍殺敵 → 殭屍死後恢復 `Follow(20) + RoutineEat(60)` 把飯吃完。 |
 | **E2E-02** | **Combat → Retreat + EmergencyEat 雙重搶佔** | `Combat(80)` 交戰中 → 瞬間扣血至 4 → `Retreat(100)` 取得 `{MOVE, LOOK}`、`EmergencyEat(90)` 取得 `{HAND, INVENTORY}` → 邊跑邊吃回血至安全距離。 |
 | **E2E-03** | **Return 長程任務中遇襲與戰後恢復** | 執行 `!return` 途中遭遇怪物 → `Combat(80)` 搶佔擊殺怪物 → 戰鬥結束後自動無縫恢復返回基地，抵達後切換為 `STAY`。 |
 | **E2E-04** | **死亡與斷線重置 (Session Generation Fencing)** | Bot 在 `Combat` 或 `Eat` 進行到一半時執行 `/kill` → `sessionGeneration` 遞增、所有鎖清空 → 重生後處於乾淨狀態，無殘留報錯或鬼畜移動。 |
 | **E2E-05** | **10Hz 迴圈效能與記憶體監控** | 連續運行 10 分鐘，經歷 20 次以上狀態切換：EventEmitter 監聽器數量無洩漏（無 `MaxListenersExceededWarning`），單輪 Tick 決策耗時 `< 5ms`。 |
-| **E2E-06** | **Bug Algorithm 繞行與死胡同回報** | 面對長牆障礙時自動生成中繼點繞行；進入死胡同嘗試 3 次後主動中斷發送回報，接收 `!continue` 後正確復原。 |
+| **E2E-06** | **有界局部繞行與死胡同回報** | 可達長牆在預算內繞行，途中可恢復原目標；死胡同最多三次或期限到即停止、回報一次，BT 不重啟；主人重新發送導航指令才重試。 |
+| **E2E-07** | **挖放開關與搶佔交接** | 預設不挖放；開啟後僅使用白名單與任務額度。進食／戰鬥搶佔及途中 off，確認舊插件操作停止後才交接，延遲回呼不能影響新 run。 |
+| **E2E-08** | **recovery 預算跨 run 延續** | 繞路途中切換 Follow/CatchUp、進食／戰鬥搶佔、開關切換後，次數、deadline 與額度不重置；過期停止且舊失敗回報不覆蓋新指令。 |
 
 ---
 
@@ -385,5 +446,6 @@
 1. [ ] 程式碼中是否完全沒有出現 `bot.pathfinder.goto` 或 `bot.pathfinder.stop`？
 2. [ ] `src/bt/` 目錄下是否完全沒有 `async/await` 與 Mineflayer API 呼叫？
 3. [ ] `src/actions/` 下每一個 `await` 的下一行，是否都有 `if (!ctx.isActive()) return;`？
-4. [ ] 資源鎖釋放是否遵守「50ms Fence 後立即移交」，而非 `await` 舊 Promise 完成？
+4. [ ] 交接前是否已停止副作用？已靜默的 adapter 遵守一 tick fence、不等懸空結果；挖放取消需確認停止，逾時禁止衝突操作而非強行交接。
 5. [ ] 連續維持 `RUNNING` 的導航動作，是否確保沒有每輪重複呼叫 `setGoal`？
+6. [ ] 導航能力、固定資源契約、白名單與額度是否在執行邊界一致，且 recovery 不因新 run 刷新預算？

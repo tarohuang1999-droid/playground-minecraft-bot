@@ -1,158 +1,158 @@
-# System Design Specification: Advanced Navigation Engine (Pathfinder & Bug Algorithm Hybrid)
+# System Design: 有界局部繞路與可切換挖放導航
 
-- **狀態**：Proposal & Design Review
-- **目標範疇**：針對 Companion Bot 中長距離導航卡頓、連續高牆/懸崖阻絕、門框與實體微卡頓問題，設計一套結合「外層蟲形演算法（Bug Algorithm Macro Planner）」與「內層白名單破障/搭橋 A* 導航（Whitelisted A* Micro Executor）」的雙層混合導航引擎。
-- **核心設計原則**：
-  - **KISS & Pragmatic Design**：不拋棄 `mineflayer-pathfinder` 原生能力，以巨觀狀態機控制中繼點（Waypoint），讓 A* 專注於 10~20 格局部最佳解。
-  - **安全破障與搭橋 (Safe Dig & Place)**：嚴格限制方塊白名單，嚴禁破壞玩家建築結構、礦物或珍貴建材。
-  - **防死鎖與失敗記憶 (Failure Memory & Anti-Repeat)**：繞路 3 次無效時及時放棄並回報主人，記錄失敗座標與繞行方向，避免無限卡死於死胡同。
+- **更新日期**：2026-10-16
+- **狀態**：折衷方向已確認；待實作與效能驗證。數值為初始驗收設定，並非已量測最佳值。
+- **實作計畫**：[implement-plan.md — Stage 14](../implement-plan.md#stage-14-有界導航恢復與指令控制的白名單挖放)
+- **決策**：保留原生 `mineflayer-pathfinder`，加入小型 recovery、最多三次局部 Bug-style 繞路，以及主人可切換的白名單挖掘／搭橋。不實作完整 Bug 0／Bug 2，不宣稱全域最短路徑或任意地形必達。
+- **規範優先順序**：本文件取代舊提案的障礙記憶、`!continue`、每 tick 動態挖掘降級，以及導航挖放相關的固定一 tick 無條件交接規則。其餘沿用現有 BT、整組資源仲裁與優先級；`system-design-v1.1.md` 的相關舊敘述以本文件為準。
 
----
+## 一、現況與範圍
 
-## 一、 現狀問題剖析 (Problem Statement & Root Causes)
+檢視目前程式與本機 `mineflayer-pathfinder 2.4.5` 的結果：
 
-1. **局部微卡頓 (Micro-Stuck & Entity Collision)**：
-   - 機器人通行門框邊緣、方塊小轉角或遭遇動物（牛、羊、村民等實體推擠）時，底層尋路速度驟降至 0。
-   - 由於路徑仍在 A* 規律內，機器人未被判定為脫軌，造成短暫卡住或原地踏步；此時只需進行 0.5 格微小側移、輕微角度調整或跳躍即可順暢脫困。
-2. **中長距離宏觀巨障 (Macro Obstruction & Cliffs)**：
-   - 遇到連續 3 格以上高牆、大型洞窟天塹或不可逾越的懸崖時，底層 A* 演算法因探索半徑（Search Radius）限制或算力保護，直接回傳 `noPath` 或陷入局部停滯。
-   - 目前機制僅每 1.5 秒反覆在原地重設相同目標，導致在牆前無限重算直至 30 秒逾時。
-3. **無受控破障能力 (All-or-Nothing Digging Vulnerability)**：
-   - 過去為防止機器人挖穿主人房屋或掉落岩漿，全域設定 `canDig = false`。
-   - 這導致只要路上有一顆懸空的泥土方塊或阻擋視線的樹葉，機器人便完全無法前進。
+- Follow、Come、Return 在停滯時以約 1200ms 門檻重設相同 Goal；`setGoal` 會清除搜尋上下文，可能打斷原本可延續的 `partial` 搜尋。
+- 這三種導航沒有共用的 30 秒截止時間；SetSpawn 才有 30 秒逾時。專案未設定 `searchRadius`，套件預設為 `-1`，不能將卡住直接歸因於搜尋半徑。
+- `setupMovements` 起初禁止挖掘，但 Follow、Come、Return 會依 HAND 空閒重新開啟 `canDig`，與純導航資源契約不一致。
+- 此版本沒有 `movements.allowPlace`；`allow1by1towers = false` 也不代表禁止所有放置。已規劃的 `toBreak`／`toPlace` 及非同步 equip/dig/place，不會因修改規劃旗標而自動安全取消。
 
----
+完整 recovery 與挖放開關適用於 `NormalFollow`、`CatchUpFollow`、`ComeOnce`、`ReturnToBase`。Combat、Retreat、PickupItem、SetSpawn 的導航部分固定禁挖放，不套用這個 15 秒恢復流程，保留自己的失敗／逾時策略。SetSpawn 啟用床鋪不屬於導航放方塊。
 
-## 二、 雙層混合導航架構 (Two-Tier Hybrid Architecture)
+不新增依賴、worker、自製 A*、地圖快取、障礙記憶、區域黑名單或持久化儲存。接受大型障礙需要主人引導的取捨。
 
-本設計採用「巨觀蟲形規劃器（外層 Macro）」+「微觀 A* 執行器（內層 Micro）」的職責分離架構：
+## 二、主人開關與白名單
 
+### 2.1 指令及生命週期
+
+| 指令 | 行為 |
+| --- | --- |
+| `!dig on` / `!dig off` | 允許／禁止導航挖掘白名單方塊 |
+| `!bridge on` / `!bridge off` | 允許／禁止導航使用白名單建材 |
+| `!status` / `!state` | 加入 `Dig=on/off Bridge=on/off`，保留原有狀態 |
+
+- 僅 Owner 可變更；參數必須是 `on` 或 `off`，錯誤參數提示用法且不改設定。
+- 兩個開關獨立且預設關閉；死亡、重生、斷線／重連或程序重啟後重設為關閉，不寫磁碟。
+- 設定放在 Blackboard 的意圖設定中，以純值隨快照傳遞。只在設定實際改變時建立新的導航 run；重複相同設定不重啟。
+- 切換流程為撤銷舊 run → 停止並清理 → 套用新設定與資源契約 → 恢復同一導航任務。清理完成前只回報設定變更待套用；已完成的方塊修改不回滾。
+- 開關切換不恢復已失敗的任務，也不重設 recovery 或挖放預算。重新下達 `!follow`、`!come`、`!return` 才視為新任務；`!stop` 結束任務。
+
+### 2.2 白名單與操作額度
+
+挖掘保留原提案材料範圍：
+
+- 泥土：`dirt`、`grass_block`、`coarse_dirt`、`podzol`、`mud`。
+- 沙礫：`sand`、`red_sand`、`gravel`。
+- 植被：`oak_leaves`、`birch_leaves`、`spruce_leaves`、`jungle_leaves`、`acacia_leaves`、`dark_oak_leaves`、`mangrove_leaves`、`cherry_leaves`、`azalea_leaves`、`vine`。
+- 石材：`cobblestone`。可用現有合適工具，不特別強制空手或木鎬慢敲。
+
+搭建只允許 `dirt`、`cobblestone`，必須有可用庫存；維持 `allow1by1towers = false`，不建垂直高塔。禁用時清空 `scafoldingBlocks`（套件原有拼字）；白名單名稱依目前 registry 解析，不存在的材料略過。
+
+白名單只限制材料，**不能辨識玩家建築或所有權**；玩家也會用泥土、鵝卵石與樹葉建造。不宣稱絕對建築保護，也不新增領地／來源追蹤系統。仍保留原生液體、落沙及其他安全限制；未載入方塊視為未知，禁止挖放。
+
+初始上限為每個導航任務最多 **3 次挖掘、3 次放置**。實際操作派發前扣額度，失敗或取消不退額；換 waypoint、搶佔恢復、Follow/CatchUp 切換及開關變更均不重置。最後一次已授權操作可完成；額度耗盡後不得再派發，以禁用該能力的設定重規劃，不繼續舊路徑中的其他挖放步驟。設定仍可顯示 on，但 status 應附剩餘額度。
+
+規劃與執行邊界都檢查白名單、目前授權、額度與 run 有效性。不能只檢查一次路徑，再放任插件自動重算出未驗證的操作。2.4.5 缺少完整執行攔截契約，先完成 Stage 14.1 相容性驗證；不得用不存在的旗標假裝達成。若需修改依賴，以可追蹤、可測試的最小相容性修補處理，不直接編輯未受版本控制的 node_modules，不擴建通用插件框架。
+
+## 三、資源契約與取消
+
+| 導航設定 | run 的固定資源契約 | 與進食並行 |
+| --- | --- | --- |
+| dig、bridge 均 off | `MOVE + LOOK` | 可並行 |
+| 任一開關 on | `MOVE + LOOK + HAND + INVENTORY` | 較高優先級進食搶佔，暫停導航 |
+
+- 以能力設定決定整個 run 的資源，不在途中追加／撤回鎖。即使沒有建材或額度耗盡，run 仍保留原契約，避免動態升降級。
+- BT 建立請求時附上能力設定與完整資源；`action()` 目前從 `ACTION_POLICY` 填入固定資源，需做限於導航的調整。能力改變建立新 run，符合 executor 不允許同 run 改契約的限制。
+- 進食、裝備、戰鬥優先級不變；搶佔後保留原任務，待資源可用再恢復。Retreat 固定禁挖放，仍能與 EmergencyEat 並行。
+- 各 adapter 啟動時套用自己的 Movements，避免共用 pathfinder 殘留前一 run 的設定。既有開門操作也必須檢查手部操作交接，不能把 dig off 當成沒有其他手部副作用。
+
+取消先撤銷 token／signal，清除 goal、手動控制及本 run 監聽器，阻止後續 equip/dig/place 派發，再停止已啟動的操作。**一個 physics tick 是控制面 fence，不是插件所有非同步操作已停止的證據。** 外層 `ctx.isActive()` 不能阻止插件內部 `.then()` 繼續操作。
+
+保留「已隔離副作用後，不等待懸空結果 Promise」規則。對不能同步保證靜默的挖放操作，只增加必要的取消完成確認：executor 在確認前不交出衝突資源；最多等待 1000ms，未確認則進入停止故障、回報一次並禁止衝突操作，不強行交接。不得 busy wait 或擴增一般工作流框架。死亡／斷線後，舊 generation 操作也不得寫入新 session。
+
+## 四、有界 recovery 與局部 Bug-style 繞路
+
+### 4.1 狀態與觸發
+
+```text
+DIRECT_TRANSIT → MICRO_UNSTUCK → WAYPOINT_DETOUR → BLOCKED_REPORT
+       ↑              │                │
+       └──────────────┴── 可恢復原目標 ──┘
 ```
-+-----------------------------------------------------------------------------+
-|                         Navigation Adapter (Body Plane)                     |
-|                                                                             |
-|   +---------------------------------------------------------------------+   |
-|   |             Macro Layer: Bug Algorithm State Machine                |   |
-|   |                                                                     |   |
-|   |   [DIRECT_TRANSIT]  --(Obstacle / Stalled)-->  [MICRO_UNSTUCK]     |   |
-|   |         ^                                             |             |   |
-|   |         | (Clear / m-line reached)            (Still blocked)       |   |
-|   |         |                                             v             |   |
-|   |   [RESUME_GOAL]     <--(Waypoint reached)--   [WAYPOINT_DETOUR]     |   |
-|   |                                                       |             |   |
-|   |                                                 (3x Failed)         |   |
-|   |                                                       v             |   |
-|   |                                               [BLOCKED_REPORT]      |   |
-|   +---------------------------------------------------------------------+   |
-|                                  | Target: Waypoint / Final Goal            |
-|                                  v                                          |
-|   +---------------------------------------------------------------------+   |
-|   |        Micro Layer: Mineflayer Pathfinder with Whitelist Dig/Place  |   |
-|   |                                                                     |   |
-|   |   - Movements: canDig (whitelisted), allowPlace (whitelisted)       |   |
-|   |   - Collision index, door opening, ladder climbing                  |   |
-|   +---------------------------------------------------------------------+   |
-+-----------------------------------------------------------------------------+
-```
 
----
+- 正常導航沿用 GoalFollow／GoalNear 與原生動態追蹤。觀察 `path_update`、`path_reset`，區分 `partial`、`success`、`noPath`、`timeout`；`success` 表示路徑已找到，不等於 bot 已抵達。
+- `partial` 延續原搜尋，不因 `isMoving() === false` 重設目標。Goal 與 adapter 到達條件需一致，避免已在容許範圍內卻被判停滯。
+- 等待合法挖放、開門、搜尋或被搶佔時不判微卡頓。執行移動且連續 1500ms 位移不足 0.15 格，或搜尋回報 `noPath`／`timeout` 時，開始 recovery 計時；終止結果若附安全部分路徑，可在同一預算內走完，不立即手動微脫困，也不能藉此無限續走／重試。
+- 首次進入 recovery 記錄起點與 deadline；微脫困、waypoint、恢復原目標都屬於同一次 recovery。
 
-## 三、 外層：蟲形演算法狀態機 (Bug Algorithm Macro Planner)
+### 4.2 微脫困
 
-蟲形演算法（Bug 0 / Bug 2 混合型態）以極低算力處理宏觀障礙：
+每次 recovery 最多一次、最長 500ms。先停下 pathfinder，確認著地、側向短路段（最多 0.5 格）的落腳與身體空間安全，再小幅側移或使用既有安全跳躍。未知地形、懸崖邊或無安全方向時略過；pathfinder 與手動移動不可同時控制 bot。
 
-### 1. 核心狀態轉移
-* **狀態 1：直行推進 (`DIRECT_TRANSIT`)**
-  * 機器人將 A* 目標設為最終目的地（`FinalGoal`）。
-  * 同步啟用前方 10 格射線檢測（`checkObstacleAhead`）。
-  * 若無障礙且 A* 正常前進，持續維持此狀態。
-* **狀態 2：微卡頓微調 (`MICRO_UNSTUCK`)**
-  * 觸發條件：`isCollidedHorizontally` 持續超過 400ms 且位移 < 0.15 格，或遭遇非敵對實體阻擋。
-  * 動作：暫停 A*，執行 0.5 秒小幅側向偏轉（左右 45 度微步前進或短暫跳躍）。
-  * 退出條件：
-    - 若位移恢復，立即回歸 `DIRECT_TRANSIT`。
-    - 若微調 2 次仍無法通行，確認為大型實體障礙，升級轉入 `WAYPOINT_DETOUR`。
-* **狀態 3：沿牆繞行 (`WAYPOINT_DETOUR`)**
-  * 觸發條件：前方 10 格檢測到不可翻越巨障、懸崖，或 `MICRO_UNSTUCK` 失敗。
-  * 繞行中繼點計算（`calculateDetourWaypoint`）：
-    1. 取得障礙物法向量與當前前進方向。
-    2. 參考歷史失敗記錄（`FailureMemory`），優先選擇未失敗過的側向（左側或右側）。
-    3. 向側向展開 6~10 格，尋找高度落差 <= 2 格之安全地面作為中繼點 `W`。
-    4. 將 A* 目標暫時切換為 `GoalNear(W.x, W.y, W.z, 1.5)`。
-* **狀態 4：脫困離開條件 (`Leave Condition`)**
-  * 機器人成功抵達中繼點 `W`。
-  * 重新朝向最終目的地做 10 格射線檢測；若前方視線已無遮擋，或當前座標已回到「原本直行基準線（m-line）」且與終點距離比撞牆點更近。
-  * 退出繞行，將 A* 目標切回 `FinalGoal`。
-* **狀態 5：三次無效中斷回報 (`BLOCKED_REPORT`)**
-  * 判定邏輯：連續執行 3 次中繼點繞行後，機器人與最終終點的距離縮短量皆小於 2.0 格（$\Delta d < 2.0$）。
-  * 行為：
-    1. 終止導航適配器，釋放身體控制權（`MOVE`, `LOOK`）。
-    2. 記錄該障礙物區域為 120 秒禁行區。
-    3. 意圖自動切換為 `STAY`，並向主人發送告警回報：
-       `Path obstructed: 3 detour attempts failed. Say !continue to retry.`。
+清除手動控制後恢復原目標一次；再次停滯進入 waypoint。微脫困成功不直接重置 recovery 預算。
 
----
+### 4.3 三次局部繞路
 
-## 四、 內層：白名單受控 A* 尋路 (Whitelisted Dig & Place)
+一次嘗試為「選點 → 前往 → 檢查恢復原目標」，**開始選點即消耗一次**。無安全候選、搜尋失敗、途中卡住與抵達後仍無法恢復，都算一次；最多三次，非要求一定用滿。
 
-底層直接善用 `mineflayer-pathfinder` 的 `Movements` 運算，但透過嚴格白名單與動態資源降級予以約束：
+- 以當前位置朝原目標的水平方向取左右側向，各採一個約 6 格候選點；最多兩點，不搜尋整圈、不重建完整牆面法向量。
+- 每點只檢查有限垂直偏移（0、+1、-1、+2、-2），要求已載入、安全落腳與身體空間；高度差符合不代表可達，交給 A* 驗證。
+- 只對選中的一點執行 A*，不對所有候選各跑一次搜尋。使用 GoalNear 與一致的到達判定。
+- 同一次 recovery 優先延續成功移動的側向；該方向失敗才換另一側，跳過已嘗試的 waypoint（至多三點）。允許暫時遠離終點，不使用「距離未縮短兩格」判失敗。
+- 不強制重回舊路徑或 m-line；目標是恢復朝原目的地導航。Follow 原目標是當前可見主人，Come 是指令當下位置，Return 是當次任務目的地。
 
-### 1. 挖掘白名單 (`DIG_WHITELIST`)
-僅允許挖掘常見、軟質、非結構性的阻擋方塊：
-* 泥土類：`dirt`, `grass_block`, `coarse_dirt`, `podzol`, `mud`
-* 重力類：`sand`, `red_sand`, `gravel`
-* 植被類：`oak_leaves`, `birch_leaves`, `spruce_leaves`, `jungle_leaves`, `acacia_leaves`, `dark_oak_leaves`, `mangrove_leaves`, `cherry_leaves`, `azalea_leaves`, `vine`
-* 雜質石類：`cobblestone`（僅在無工具時允許空手慢慢敲或消耗木鎬破障）
-* **嚴禁挖掘項目**：所有礦石、木板、原木、熔爐、箱子、工作台、門、床、黑曜石、基岩等玩家結構方塊。
+### 4.4 繞路途中恢復原目標
 
-### 2. 搭建白名單 (`PLACE_WHITELIST`)
-僅在橫跨斷崖或攀爬小階梯時允許鋪設：
-* 允許方塊：`cobblestone`, `dirt`
-* 檢查前提：`bot.inventory` 內必須存在該物品，且數量 $\ge 1$。
-* 嚴禁消耗：礦物磚、木板、工作台或稀有建築建材。
+- 每淨移動至少 2 格且距上次檢查至少 500ms，才檢查朝原目標的短通道；長度最多 3 格，檢查支撐、腳部及頭部空間。抵達 waypoint 也可檢查，不能只用視線射線判安全。
+- 通道有機會可通行時，暫停 waypoint 搜尋／移動，對原目標做受限 A* 探測；**每次繞路最多一次探測**，包含途中與抵達後。
+- 探測只規劃、不挖放、不手動移動；與正常尋路共用排程，同時只允許一個搜尋工作。使用可分段搜尋，每個 physics tick 最多推進一個切片，禁止同步迴圈跑完整搜尋或使用 `goto()`。
+- 完整可行路徑才提早恢復原目標；`partial` 不代表可恢復。探測逾時或失敗，若還沒到 waypoint，可恢復該 waypoint 一次；禁止反覆探測／恢復循環。
+- 套用前重驗 run、任務、世界有效性與目標；Follow 主人若已移動超出到達容許範圍，丟棄過期結果，該次探測仍計額度。恢復 Goal 後原生所需的重新搜尋也受相同預算約束。
 
-### 3. 資源通道連動與動態降級
-* `canDig` 與 `allowPlace` 需要使用機器人的手部（`HAND` 通道）。
-* 若當前 Tick 中，高優先級動作（如 `Combat (80)`、`EmergencyEat (90)`、`RoutineEat (60)`）鎖定了 `HAND` 通道，導航適配器在當輪必須強制將 `movements.canDig = false` 與 `movements.allowPlace = false`，嚴禁與進食或揮劍動作搶奪主手。
+### 4.5 預算及重置
 
----
+| 項目 | 初始設定／上限 |
+| --- | --- |
+| A* 切片 | `tickTimeout = 5ms`；軟時間預算，單次節點展開仍可能超時 |
+| 單次搜尋 | `thinkTimeout = 1000ms`；recovery 中不得超過剩餘期限 |
+| recovery 總時間 | 15000ms，自首次進入起計的 wall-clock 時間 |
+| 微脫困 | 最多 1 次、500ms |
+| waypoint | 最多 3 次，每次最多 2 候選、約 6 格 |
+| 原目標探測 | 每次 waypoint 嘗試最多 1 次，共最多 3 次 |
+| 外層重規劃頻率 | 至少間隔 1000ms；取消／停止不受限 |
 
-## 五、 失敗記憶與指令互動機制 (Failure Memory & Master Interaction)
+時間到期即停止；三次嘗試仍無法恢復時停止。第三次 waypoint 可完成其允許的探測，成功恢復後可在剩餘期限內繼續驗證正常移動，但不能建立第四次。原生自動重算也受 recovery deadline 約束，不能因 `path_reset` 另開無限恢復流程。計時統一使用注入的單調時鐘，不混用 `Date.now()` 與 `performance.now()`。
 
-為了防止機器人在相同地形無限重複失敗，建立輕量記憶與主人覆寫指令：
+`searchRadius` 不是 CPU／記憶體硬上限，也不當成「A* 一定只搜索周圍 10～20 格」的保證。先限制搜尋切片、總時間及觸發頻率，不因失敗自動擴大範圍。
 
-### 1. 障礙失敗記錄器 (`ObstacleMemory`)
-* 資料結構：
-  ```typescript
-  interface FailedDetourRecord {
-    obstaclePos: { x: number; y: number; z: number };
-    failedSide: 'left' | 'right';
-    timestamp: number;
-    ttlMs: number; // 預設 60,000ms ~ 120,000ms
-  }
-  ```
-* 查詢邏輯：計算繞行側向時，比對半徑 8 格內是否存在有效失敗記錄；若左側曾失敗，則強制選擇右側，反之亦然。
+同一導航任務共享計數、剩餘挖放額度與 recovery deadline。Follow/CatchUp 切換、BT 新 run、開關切換、進食／戰鬥搶佔均不得重置；搶佔時間仍計入 15 秒，恢復時若過期就回報失敗，不再搜尋。
 
-### 2. 主人介入指令 (`!continue`)
-* 當機器人因 3 次繞行失敗進入 `BLOCKED_REPORT` 並停留在 `STAY` 時：
-  - 主人發送 `!continue`：
-    1. 機器人恢復剛才被中斷的任務（如繼續返回基地 `!return` 或前往主人位置 `!come`）。
-    2. 重置 3 次失敗計數器。
-    3. 放大繞行展開步長（由原本 6 格擴大至 12 格），嘗試大範圍遠程繞道。
-  - 主人下達新指令（如 `!follow` 或 `!come`）：
-    1. 立即清除舊導航狀態，以新指令為最高優先級執行。
+只有正常導航持續至少 5 秒、且相對恢復正常時的位置淨移動至少 6 格，才結束該次 recovery；前後抖動的累計路程不算。結束 recovery 可清除局部計數，但不恢復挖放額度。抵達終點正常成功；主人新導航指令或 session 結束則清除整個任務狀態。
 
----
+## 五、停止、回報與最小狀態
 
-## 六、 驗收門檻與測試規劃 (Exit Criteria & Test Plan)
+- 無法恢復時回傳一次帶原因的 FAILURE，經既有 bot callback／runner 事件將相關 FOLLOW／COME／RETURN 任務轉成 STAY，透過 VOICE 回報：`Path obstructed. Stopped; send !follow, !come or !return to retry.`
+- BT 不得下一輪自動重建同一失敗任務；處理失敗時驗證任務識別，舊 run 回報不得覆蓋新指令。這不阻止 Combat／Retreat 處理安全事件。
+- 停止時依第三節清理控制、搜尋與挖放，完成交接後釋放資源。取消故障與尋路失敗分開記錄。
+- 當次任務只存原目標、能力設定、剩餘額度，以及 recovery 起點／時間、次數、側向、至多三個 waypoint 和探測旗標。放在 navigation 的單一任務狀態；任務識別只隨主人新導航指令更新，不能直接使用會因開關變更而更新的設定 revision 或 runId。停止／session 結束使其失效，不建立通用任務恢復框架。
+- 不保存跨任務障礙位置、區域 TTL 或左右側歷史；既有 PickupItem／SetSpawn 冷卻不受影響。不新增 `!continue`。
 
-1. **單元測試 (`test/unit/pathfinder-bug.test.ts`)**：
-   - 驗證前方 10 格射線檢測障礙物能準確識別巨牆與斷崖。
-   - 驗證白名單挖掘判定：`dirt` 可挖掘，`diamond_ore` 與 `oak_door` 嚴格拒絕。
-   - 驗證搭橋白名單：背包有 `cobblestone` 時啟用，無建材時關閉 `allowPlace`。
-   - 驗證 3 次無效繞行檢測，達到 3 次時正確觸發回報並終止動作。
-   - 驗證 `FailureMemory` 記錄失敗側向，下一次繞行自動選擇相反方向。
-2. **整合測試**：
-   - 模擬連續 4 格高牆阻擋，機器人自動向側邊取中繼點成功繞過障礙。
-   - 模擬微卡頓情境，機器人透過微幅側移在 1 秒內自動脫困。
-   - 模擬死胡同地形，機器人嘗試 3 次後主動停下並於聊天室發送 `Path obstructed...`。
+## 六、驗收與效能證據
+
+### 6.1 單元與整合測試
+
+- 開關預設 off、Owner 權限、錯誤參數、獨立切換、status 與 session 重置；相同設定不洗 Goal。
+- off 完全不挖放；on 只允許白名單及庫存建材；非白名單、未知方塊與額度耗盡時禁止派發。插件自動重算也不能繞過限制。
+- 模擬 equip 尚未完成、dig/place 已開始時的 off、stop、進食搶佔、死亡／重連；舊插件回呼不能操作新 run，取消未完成不交出衝突資源。
+- 純導航與進食並行；允許挖放的導航被進食搶佔後正確恢復；Retreat 仍禁挖放並可與 EmergencyEat 並行。
+- `partial` 延續、不因 idle 洗 Goal；已抵達 Goal 不誤判；合法操作等待不觸發微脫困。
+- 微脫困只一次；危險／未知側向不移動；手動控制與 pathfinder 不競爭。
+- 選點失敗也計次、最多三次；長牆繞行暫時遠離目標仍可繼續；懸崖與未載入區域不是安全候選。
+- 途中通道恢復可提早回原目標；每次僅一次探測、搜尋不並行、過期結果丟棄。
+- 再次卡住、原生 reset、Follow/CatchUp 切換及搶佔不刷新預算；期限到達停止，BT 不重啟，回報一次且不覆寫新指令。
+
+### 6.2 Paper 與資源量測
+
+固定同一測試世界、路線、庫存、可視實體與 Node 環境，比較修改前後：空曠跟隨、門框、可於預算內繞過的長牆、死胡同、短缺口搭橋，以及挖放途中進食／戰鬥搶佔。無路場景以有界停止為成功，不要求任意高牆／峽谷皆可達。
+
+每個固定場景至少重複 5 次，另做 10 分鐘穩定性測試；記錄完成率、完成／放棄時間、搜尋與重設次數、CPU、RSS、event-loop delay，以及 A* generated/visited nodes。只保存數值摘要，不保留整個 A* context 或逐 tick 大量日誌。
+
+驗證三次嘗試與時間截止，停止後同任務不再搜尋；15 秒截止在下一個可執行決策輪處理，另記 event-loop 延遲。5ms 切片不等於整個 bot 每 tick 最多使用 5ms CPU，搜尋時間限制也不是嚴格記憶體上限。沒有量測前不宣稱比較省資源；若空曠跟隨反覆觸發 recovery 或資源用量持續成長，不得通過驗收。
