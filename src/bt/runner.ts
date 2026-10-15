@@ -1,10 +1,10 @@
-import type { Blackboard, BlackboardSnapshot, IntentState, WorldState } from '../blackboard.ts';
+import type { Blackboard, BlackboardSnapshot, IntentState, Position, WorldState } from '../blackboard.ts';
 import type { Executor } from '../execution/executor.ts';
 import type { ActionRequest } from '../execution/types.ts';
 import type { BehaviorTree } from './nodes.ts';
 
 export type RunnerEvent = { type: 'world'; world: WorldState }
-  | { type: 'intent'; mode: IntentState['mode'] }
+  | { type: 'intent'; mode: IntentState['mode']; targetPosition?: Position | null }
   | { type: 'status' };
 export function createRunner(options: {
   board: Blackboard; executor: Executor; tree: BehaviorTree;
@@ -35,7 +35,7 @@ export function createRunner(options: {
       events = new Map(); // Events raised below belong to the next decision.
       for (const event of batch.values()) {
         if (event.type === 'world') board.setWorld(event.world);
-        if (event.type === 'intent') board.setIntent(event.mode, time);
+        if (event.type === 'intent') board.setIntent(event.mode, time, event.targetPosition);
       }
       executor.flushResults(time);
       board.setRuntime(executor.runtime());

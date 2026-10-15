@@ -20,7 +20,12 @@ export interface WorldState {
     pendingArmorUpgrade: { itemId: number; slot: 'head' | 'torso' | 'legs' | 'feet' } | null;
   };
 }
-export interface IntentState { mode: 'FOLLOW' | 'STAY' | 'IDLE'; updatedAt: number; intentRevision: number }
+export interface IntentState {
+  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN';
+  targetPosition?: Position | null;
+  updatedAt: number;
+  intentRevision: number;
+}
 export interface RuntimeState {
   activeRuns: Record<string, { runId: string; actionType: ActionType; targetId: number | null; startedAt: number; status: 'RUNNING' | 'STOPPING' | 'FAULTED' }>;
   results: Record<string, ActionResult>;
@@ -59,12 +64,12 @@ function freezeDeep<T>(value: T): DeepReadonly<T> {
 export function createBlackboard(master: string) {
   let state: BoardState = {
     revision: 0, observedAt: 0, generation: 0, world: createWorld(master),
-    intent: { mode: 'IDLE', updatedAt: 0, intentRevision: 0 }, runtime: emptyRuntime(),
+    intent: { mode: 'IDLE', targetPosition: null, updatedAt: 0, intentRevision: 0 }, runtime: emptyRuntime(),
   };
   return {
     setWorld(world: WorldState) { state.world = structuredClone(world); },
-    setIntent(mode: IntentState['mode'], now: number) {
-      state.intent = { mode, updatedAt: now, intentRevision: state.intent.intentRevision + 1 };
+    setIntent(mode: IntentState['mode'], now: number, targetPosition?: Position | null) {
+      state.intent = { mode, targetPosition: targetPosition ?? null, updatedAt: now, intentRevision: state.intent.intentRevision + 1 };
     },
     setRuntime(runtime: RuntimeState) { state.runtime = structuredClone(runtime); },
     reset(generation: number) {

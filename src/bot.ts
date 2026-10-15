@@ -25,7 +25,14 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   const board = createBlackboard(owner);
   const perception = createPerception(bot, owner, options.now ? { now: options.now } : {});
   const chat = createChat(message => bot.chat(message));
-  const navigation = createNavigation(bot as any, logger);
+  const navigation = createNavigation(bot as any, logger, {
+    onComeArrived: () => {
+      logger?.info('[navigation] ComeOnce arrived at target position, switching intent to STAY');
+      runner.enqueue({ type: 'intent', mode: 'STAY' });
+      chat.enqueue('Arrived at your location.');
+      runner.requestUrgentTick();
+    },
+  });
   const inventory = createInventoryAdapters(bot as any, logger);
   const combat = createCombatAdapter(bot as any, logger, {
     isThreat: (targetId) => {
@@ -45,6 +52,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     CatchUpFollow: navigation.catchUpFollow,
     PickupItem: navigation.pickupItem,
     Retreat: navigation.retreat,
+    ComeOnce: navigation.comeOnce,
   } : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,
@@ -180,6 +188,22 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       const msg = `Base set to (${basePos.x.toFixed(1)}, ${basePos.y.toFixed(1)}, ${basePos.z.toFixed(1)})`;
       logger?.info(`[base] ${msg}`);
       chat.enqueue(msg);
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'come') {
+      const currentWorld = perception.sample();
+      const masterPos = currentWorld.master.position;
+      if (!masterPos) {
+        logger?.warn('[chat] !come rejected: master position is unknown or not visible');
+        chat.enqueue('Cannot see you!');
+        runner.requestUrgentTick();
+        return;
+      }
+      logger?.info(`[chat] accepted command: come to (${masterPos.x.toFixed(1)}, ${masterPos.y.toFixed(1)}, ${masterPos.z.toFixed(1)})`);
+      runner.enqueue({ type: 'intent', mode: 'COME', targetPosition: masterPos });
+      chat.enqueue('Intent=COME');
       runner.requestUrgentTick();
       return;
     }

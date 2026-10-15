@@ -8,6 +8,7 @@ export const ACTION_POLICY = {
   EquipBest: { priority: 50, requiredResources: ['HAND', 'INVENTORY'] },
   CatchUpFollow: { priority: 40, requiredResources: ['MOVE', 'LOOK'] },
   PickupItem: { priority: 30, requiredResources: ['MOVE', 'LOOK'] },
+  ComeOnce: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
   NormalFollow: { priority: 20, requiredResources: ['MOVE', 'LOOK'] },
   Chat: { priority: 10, requiredResources: ['VOICE'] },
   Idle: { priority: 0, requiredResources: [] },

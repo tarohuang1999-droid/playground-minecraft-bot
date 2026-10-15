@@ -36,9 +36,25 @@ export function workSubtree(available: ReadonlySet<string>) {
     }),
     { exit: s => getBestPickupTarget(s) === null });
 
+  const canCome = (s: BlackboardSnapshot) =>
+    s.world.self.isAlive && s.intent.mode === 'COME' && s.intent.targetPosition !== null && s.intent.targetPosition !== undefined;
+
+  const comeOnce = guard('ComeOnce-ready',
+    s => available.has('ComeOnce') && canCome(s),
+    action('ComeOnce', s => {
+      const pos = s.intent.targetPosition!;
+      return {
+        actionType: 'ComeOnce',
+        targetId: null,
+        params: { x: pos.x, y: pos.y, z: pos.z },
+      };
+    }),
+    { exit: s => !available.has('ComeOnce') || !canCome(s) });
+
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
+    comeOnce,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
   ]);
 }
