@@ -295,61 +295,136 @@ function resolveTarget(bot: NavigationBot, targetId: number | null, owner: strin
   return null;
 }
 
+export function findWalkableY(
+  bot: NavigationBot,
+  x: number,
+  startY: number,
+  z: number
+): number | null {
+  if (typeof bot.blockAt !== 'function') return startY;
+
+  let testedAnyBlock = false;
+
+  // Search vertical offset within [-4, +4] for open space with solid footing
+  for (const dy of [0, 1, -1, 2, -2, 3, -3, 4, -4]) {
+    const testY = Math.floor(startY + dy);
+    const feet = safeBlockAt(bot, { x, y: testY, z });
+    const head = safeBlockAt(bot, { x, y: testY + 1, z });
+    const ground = safeBlockAt(bot, { x, y: testY - 1, z });
+
+    if (feet || head || ground) {
+      testedAnyBlock = true;
+    }
+
+    if (!feet || !head || !ground) continue;
+
+    const feetSolid = feet.boundingBox === 'block';
+    const headSolid = head.boundingBox === 'block';
+    const groundSolid = ground.boundingBox === 'block';
+    const hasLava = feet.name?.includes('lava') || ground.name?.includes('lava');
+
+    // Walkable space: passable at feet and head, solid footing underneath, not lava
+    if (!feetSolid && !headSolid && groundSolid && !hasLava) {
+      return testY;
+    }
+  }
+
+  // If no block info was returned (unloaded chunks or test mocks returning null)
+  if (!testedAnyBlock) {
+    return startY;
+  }
+
+  return null;
+}
+
 export function findSafestEscapePosition(
   bot: NavigationBot,
   threats: readonly { position: { x: number; y: number; z: number } }[],
   origin: { x: number; y: number; z: number },
-  options: { radius?: number; dangerRadius?: number; angleCount?: number } = {}
+  options: {
+    radius?: number | undefined;
+    dangerRadius?: number | undefined;
+    angleCount?: number | undefined;
+    avoidAngle?: number | undefined;
+  } = {}
 ): { x: number; y: number; z: number } {
-  const radius = options.radius ?? 12;
+  const baseRadius = options.radius ?? 12;
   const dangerRadius = options.dangerRadius ?? 10;
   const angleCount = options.angleCount ?? 16;
+
+  // Try multiple radii (e.g. 12, 8, 5) in case large radius is obstructed by cave walls
+  const radiiToTry = [baseRadius];
+  if (baseRadius > 8) radiiToTry.push(8);
+  if (baseRadius > 5) radiiToTry.push(5);
 
   let bestCandidate: { x: number; y: number; z: number } | null = null;
   let lowestThreatCount = Infinity;
   let maxMinDistance = -Infinity;
 
-  for (let i = 0; i < angleCount; i++) {
-    const angle = (i * 2 * Math.PI) / angleCount;
-    const cx = origin.x + radius * Math.cos(angle);
-    const cz = origin.z + radius * Math.sin(angle);
-    const cy = origin.y;
+  for (const radius of radiiToTry) {
+    for (let i = 0; i < angleCount; i++) {
+      const angle = (i * 2 * Math.PI) / angleCount;
 
-    // Check terrain hazard (lava, void) if blockAt is available
-    if (typeof bot.blockAt === 'function') {
-      const block = safeBlockAt(bot, { x: cx, y: cy, z: cz });
-      const blockBelow = safeBlockAt(bot, { x: cx, y: cy - 1, z: cz });
-      if (block?.name?.includes('lava') || blockBelow?.name?.includes('lava')) {
-        continue; // Disqualify lava
+      // If avoidAngle is specified, skip directions within 30 degrees
+      if (options.avoidAngle !== undefined) {
+        let diff = Math.abs(angle - options.avoidAngle);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        if (diff < Math.PI / 6) continue;
+      }
+
+      const cx = origin.x + radius * Math.cos(angle);
+      const cz = origin.z + radius * Math.sin(angle);
+      const cy = findWalkableY(bot, cx, origin.y, cz);
+
+      // If candidate is inside solid wall or has no walkable ground, skip!
+      if (cy === null) {
+        continue;
+      }
+
+      let threatCount = 0;
+      let minThreatDist = Infinity;
+
+      for (const threat of threats) {
+        const d = Math.hypot(threat.position.x - cx, threat.position.z - cz);
+        if (d <= dangerRadius) {
+          threatCount++;
+        }
+        if (d < minThreatDist) {
+          minThreatDist = d;
+        }
+      }
+
+      if (threats.length === 0) {
+        minThreatDist = radius;
+      }
+
+      // Prioritize fewest threats in the area; break ties with maximum distance to closest threat
+      if (threatCount < lowestThreatCount || (threatCount === lowestThreatCount && minThreatDist > maxMinDistance)) {
+        lowestThreatCount = threatCount;
+        maxMinDistance = minThreatDist;
+        bestCandidate = { x: cx, y: cy, z: cz };
       }
     }
 
-    let threatCount = 0;
-    let minThreatDist = Infinity;
-
-    for (const threat of threats) {
-      const d = Math.hypot(threat.position.x - cx, threat.position.z - cz);
-      if (d <= dangerRadius) {
-        threatCount++;
-      }
-      if (d < minThreatDist) {
-        minThreatDist = d;
-      }
-    }
-
-    if (threats.length === 0) {
-      minThreatDist = radius;
-    }
-
-    // Prioritize fewest threats in the area; break ties with maximum distance to closest threat
-    if (threatCount < lowestThreatCount || (threatCount === lowestThreatCount && minThreatDist > maxMinDistance)) {
-      lowestThreatCount = threatCount;
-      maxMinDistance = minThreatDist;
-      bestCandidate = { x: cx, y: cy, z: cz };
+    if (bestCandidate !== null) {
+      break;
     }
   }
 
-  return bestCandidate ?? { x: origin.x - radius, y: origin.y, z: origin.z };
+  // Fallback: if all directions are blocked by walls, step away from closest threat
+  if (!bestCandidate && threats.length > 0 && threats[0]) {
+    const closest = threats[0];
+    const dx = origin.x - closest.position.x;
+    const dz = origin.z - closest.position.z;
+    const len = Math.hypot(dx, dz) || 1;
+    return {
+      x: origin.x + (dx / len) * 4,
+      y: origin.y,
+      z: origin.z + (dz / len) * 4,
+    };
+  }
+
+  return bestCandidate ?? { x: origin.x - baseRadius, y: origin.y, z: origin.z };
 }
 
 export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) {
@@ -626,6 +701,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
       let isJumping = false;
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
+      let lastRepathTime = 0;
+      let lastAngle: number | undefined = undefined;
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -639,7 +718,15 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
           const origin = bot.entity?.position ?? snapshot.world.self.position;
           const threats = snapshot.world.threats;
 
+          const now = Date.now();
+          lastProgressTime = now;
+          lastRepathTime = now;
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
+
           targetPos = findSafestEscapePosition(bot, threats, origin);
+          lastAngle = Math.atan2(targetPos.z - origin.z, targetPos.x - origin.x);
           logger?.info(`[navigation] Retreat started towards safest position (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
 
           if ((bot.pathfinder as any)?.movements) {
@@ -647,7 +734,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
           }
 
           activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
-          bot.pathfinder.setGoal(activeGoal, true);
+          bot.pathfinder.setGoal(activeGoal); // Static goal, dynamic must be false
         },
 
         update(ctx: ActionContext): void | ActionResult {
@@ -665,7 +752,13 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
             return { status: 'SUCCESS' };
           }
 
-          // Obstacle jump check
+          const now = Date.now();
+          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
+
+          // 1. Proactive Door Opening
+          doorManager.tryOpenDoorInFront(bot, logger);
+
+          // 2. Obstacle jump check
           if (shouldJumpObstacle(bot)) {
             bot.setControlState?.('jump', true);
             isJumping = true;
@@ -674,15 +767,54 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
             isJumping = false;
           }
 
+          // 3. Movement progress & Stuck detection
+          if (currentPos && lastPos) {
+            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.z - lastPos.z);
+            if (mdist >= 0.2) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          } else if (currentPos) {
+            lastPos = { ...currentPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          const progressStalled = (now - lastProgressTime) > 1200;
+          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 800;
+
+          // Fail-safe: if stuck/stalled for > 3.5 seconds, bot is trapped in a corner or boxed in!
+          // Abort retreat so Combat can take over and defend against the attacking mobs!
+          if (now - lastProgressTime > 3500) {
+            logger?.warn('[navigation] Retreat path trapped or stalled for > 3.5s, aborting retreat so bot can defend');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'FAILURE', reason: 'Retreat path trapped or obstructed' };
+          }
+
+          // Re-route if path is stalled or idle
+          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1000) {
+            logger?.info('[navigation] retreat path obstructed or idle, re-sampling safe direction...');
+            lastRepathTime = now;
+            targetPos = findSafestEscapePosition(bot, threats, currentPos, {
+              radius: 8,
+              avoidAngle: lastAngle,
+            });
+            lastAngle = Math.atan2(targetPos.z - currentPos.z, targetPos.x - currentPos.x);
+            activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
+            bot.pathfinder?.setGoal(activeGoal);
+          }
+
           // If reached current target point but threats are still pursuing (< retreatExit)
-          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
           if (targetPos) {
             const distToGoal = Math.hypot(targetPos.x - currentPos.x, targetPos.z - currentPos.z);
-            if (distToGoal <= 2.0) {
+            if (distToGoal <= 2.0 && (now - lastRepathTime) > 800) {
+              lastRepathTime = now;
               targetPos = findSafestEscapePosition(bot, threats, currentPos);
+              lastAngle = Math.atan2(targetPos.z - currentPos.z, targetPos.x - currentPos.x);
               logger?.info(`[navigation] Re-sampling retreat position to (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
               activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
-              bot.pathfinder?.setGoal(activeGoal, true);
+              bot.pathfinder?.setGoal(activeGoal);
             }
           }
         },
@@ -693,6 +825,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
           targetPos = null;
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
+          doorManager.reset();
         },
       };
     };

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createBlackboard, createWorld } from '../../src/blackboard.ts';
-import { findSafestEscapePosition } from '../../src/actions/navigation.ts';
+import { createNavigation, findSafestEscapePosition } from '../../src/actions/navigation.ts';
 import { shouldExitRetreat, shouldRetreat, survivalSubtree } from '../../src/bt/subtrees/survival.ts';
 import { createCompanionTree } from '../../src/bt/companion-tree.ts';
 import { createArbiter } from '../../src/execution/arbiter.ts';
@@ -41,8 +41,11 @@ test('findSafestEscapePosition: avoids terrain hazards (lava)', () => {
   // Pretend West (-X) has lava
   const fakeBot: any = {
     blockAt: (pos: any) => {
-      if (pos.x < 0) return { name: 'lava' };
-      return { name: 'stone' };
+      if (pos.y < 64) {
+        if (pos.x < 0) return { name: 'lava', boundingBox: 'block' };
+        return { name: 'stone', boundingBox: 'block' };
+      }
+      return { name: 'air', boundingBox: 'empty' };
     },
   };
 
@@ -244,4 +247,62 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
   assert.ok(activeActions.includes('Retreat'));
   assert.ok(activeActions.includes('EmergencyEat'));
   assert.strictEqual(activeActions.includes('Combat'), false);
+});
+
+test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allowing defense', async () => {
+  const bot: any = {
+    entity: { position: { x: 0, y: 64, z: 0 } },
+    pathfinder: {
+      setGoal: () => {},
+      isMoving: () => false, // pathfinder is idle / cannot find path
+    },
+    setControlState: () => {},
+  };
+
+  const nav = createNavigation(bot);
+  const request: ActionRequest = {
+    nodeId: 'retreat',
+    runId: 'run-retreat-1',
+    actionType: 'Retreat',
+    targetId: null,
+    priority: 100,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
+  };
+
+  const adapter = nav.retreat(request);
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 1,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => ({
+      world: {
+        self: { position: { x: 0, y: 64, z: 0 }, health: 4, food: 20, isAlive: true, tookDamageRecently: true },
+        master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
+        entities: [],
+        threats: [{ entityId: 10, name: 'zombie', position: { x: 3, y: 64, z: 0 }, distance: 3 }],
+        nearbyDrops: [],
+        inventory: { freeSlots: 10, bestFood: null, bestWeapon: null, equippedWeaponDamage: 0, pendingArmorUpgrade: null },
+      },
+      intent: { mode: 'FOLLOW', updatedAt: 0, intentRevision: 1 },
+      runtime: { activeRuns: {}, results: {}, cooldowns: {}, lockedResources: {} as any },
+      revision: 1,
+      observedAt: Date.now(),
+      generation: 1,
+    }),
+  };
+
+  adapter.start(ctx);
+
+  // Fast forward time > 3600ms without progress
+  const originalNow = Date.now;
+  try {
+    Date.now = () => originalNow() + 4000;
+    const outcome = adapter.update!(ctx);
+    assert.deepStrictEqual(outcome, { status: 'FAILURE', reason: 'Retreat path trapped or obstructed' });
+  } finally {
+    Date.now = originalNow;
+  }
 });
