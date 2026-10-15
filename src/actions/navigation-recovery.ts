@@ -1,6 +1,8 @@
 import { safeBlockAt, isDoorBlock, type NavigationBot, type NavigationLogger } from './navigation.ts';
 import type { NavigationTaskState } from './navigation-guard.ts';
 
+export const RECOVERY_DEADLINE_MS = 3000;
+
 export function isSafeSupportBlock(block: any): boolean {
   if (!block || !block.name) return false;
   const name = block.name.toLowerCase();
@@ -309,8 +311,9 @@ export class NavigationRecoveryCoordinator {
       this.lastProgressTime = now;
     }
 
-    // 5. Check if stalled
-    const stalledByTime = (now - this.lastProgressTime) >= 1500;
+    // 5. Check if stalled (1500ms initial stall, 800ms for retries within recovery)
+    const stallThreshold = taskState?.recoveryActive ? 800 : 1500;
+    const stalledByTime = (now - this.lastProgressTime) >= stallThreshold;
     const stalledByPath = this.pathStatus === 'noPath' || this.pathStatus === 'timeout' || this.pathResetReason === 'stuck';
 
     if (stalledByTime || stalledByPath) {
@@ -319,7 +322,7 @@ export class NavigationRecoveryCoordinator {
         if (!taskState.recoveryActive) {
           taskState.recoveryActive = true;
           taskState.recoveryStart = now;
-          taskState.recoveryDeadline = now + 15000;
+          taskState.recoveryDeadline = now + RECOVERY_DEADLINE_MS;
           taskState.originPos = currentPos ? { ...currentPos } : null;
           taskState.microUnstuckDone = false;
           taskState.waypointAttempts = 0;
@@ -332,7 +335,7 @@ export class NavigationRecoveryCoordinator {
         }
 
         if (now >= taskState.recoveryDeadline) {
-          this.logger?.warn('[recovery] recovery deadline expired (15s), stopping navigation');
+          this.logger?.warn('[recovery] recovery deadline expired (3s), stopping navigation');
           return {
             actionResult: {
               status: 'FAILURE',

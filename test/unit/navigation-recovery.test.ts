@@ -207,8 +207,8 @@ test('micro-unstuck executes two-phase corner disengage (back+side then forward+
   assert.equal(bot.controlStates.forward, false, 'Forward cleared');
   assert.equal(bot.goalsSet.length, goalsBeforeFinish + 1, 'Original goal restored to pathfinder');
 
-  // 4. Stall again: Attempt 2 triggers
-  currentTime += 1600;
+  // 4. Stall again within recovery: Attempt 2 triggers (800ms threshold)
+  currentTime += 800;
   adapter.update!(ctx);
   assert.equal(taskState.microUnstuckAttempts, 2, 'Attempt 2 triggered on subsequent stall');
   assert.equal(taskState.microUnstuckActive, true);
@@ -219,7 +219,7 @@ test('micro-unstuck executes two-phase corner disengage (back+side then forward+
   assert.equal(taskState.microUnstuckActive, false, 'Attempt 2 finished');
 
   // 5. Stall again: Attempt 3 triggers
-  currentTime += 1600;
+  currentTime += 800;
   adapter.update!(ctx);
   assert.equal(taskState.microUnstuckAttempts, 3, 'Attempt 3 triggered on subsequent stall');
   assert.equal(taskState.microUnstuckActive, true);
@@ -231,7 +231,7 @@ test('micro-unstuck executes two-phase corner disengage (back+side then forward+
   assert.equal(taskState.microUnstuckDone, true, 'All 3 attempts done');
 
   // 6. Stall once more after 3 attempts exhausted: must return FAILURE and call onNavigationFailed
-  currentTime += 1600;
+  currentTime += 800;
   const failResult = adapter.update!(ctx);
   assert.equal(failResult?.status, 'FAILURE');
   assert.match(failResult?.reason ?? '', /Path obstructed/);
@@ -312,7 +312,7 @@ test('manual controls and pathfinder never compete, cancel cleans up all listene
   assert.equal(adapter.isStopped!(), true, 'isStopped() true after cancel cleanup');
 });
 
-test('recovery deadline (15s) expires with FAILURE, and normal movement (>=5s, >=6 blocks) clears recovery', () => {
+test('recovery deadline (3s) expires with FAILURE, and normal movement (>=5s, >=6 blocks) clears recovery', () => {
   let currentTime = 1000;
   const bot = new FakeRecoveryBot();
   bot.setBlock(0, 63, 0, { name: 'stone', boundingBox: 'block' });
@@ -350,12 +350,12 @@ test('recovery deadline (15s) expires with FAILURE, and normal movement (>=5s, >
 
   assert.equal(taskState.recoveryActive, false, 'Recovery successfully cleared after >=5s and >=6 blocks net move');
 
-  // Subcase B: Stall again and exceed 15s deadline
+  // Subcase B: Stall again and exceed 3s deadline
   currentTime += 1500;
   adapter.update!(ctx);
   assert.equal(taskState.recoveryActive, true);
 
-  currentTime += 16000; // Past 15000ms deadline
+  currentTime += 3500; // Past 3000ms deadline
   const failResult = adapter.update!(ctx);
   assert.equal(failResult?.status, 'FAILURE');
   assert.match(failResult?.reason ?? '', /Path obstructed/);
