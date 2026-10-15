@@ -43,7 +43,7 @@ export interface BoardState {
   runtime: RuntimeState;
 }
 export type BlackboardSnapshot = DeepReadonly<BoardState>;
-export function createWorld(master: string): WorldState {
+export function createWorld(master: string = ''): WorldState {
   return {
     self: { position: { x: 0, y: 0, z: 0 }, health: 20, food: 20, isAlive: false, tookDamageRecently: false },
     master: { username: master, entityId: null, position: null, distance: Infinity },

@@ -4,7 +4,34 @@ import test from 'node:test';
 import { attachCompanion } from '../../src/bot.ts';
 import { createPerception } from '../../src/perception.ts';
 
-test('spawn perception: autonomous bed discovery and base change refresh', () => {
+test('spawn perception: findBlock receives Vec3 instance with .floored() and respects occupied state', () => {
+  let passedPoint: any = null;
+  const fakeBot = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    health: 20,
+    food: 20,
+    players: {},
+    entities: {},
+    inventory: { emptySlotCount: () => 36, items: () => [], slots: [] },
+    findBlock: (options: any) => {
+      passedPoint = options.point;
+      assert.strictEqual(typeof options.point?.floored, 'function');
+      const floored = options.point.floored();
+      assert.strictEqual(typeof floored.x, 'number');
+      // Verify matcher filters out occupied beds
+      assert.strictEqual(options.matching({ name: 'red_bed', _properties: { occupied: 'true' } }), false);
+      assert.strictEqual(options.matching({ name: 'red_bed', _properties: { occupied: 'false' } }), true);
+      return { position: { x: 5, y: 64, z: 5 } };
+    },
+  };
+  const perception = createPerception(fakeBot as any, undefined, { now: () => 1000 });
+  const w = perception.sample();
+  assert.ok(passedPoint);
+  assert.strictEqual(typeof passedPoint.floored, 'function');
+  assert.deepStrictEqual(w.nearbyBed, { x: 5, y: 64, z: 5 });
+});
+
+test('spawn perception: autonomous bed discovery (no-owner vs owner-with-base)', () => {
   let simulatedTime = 1000;
   const fakeBot = {
     entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
@@ -19,12 +46,21 @@ test('spawn perception: autonomous bed discovery and base change refresh', () =>
     },
   };
 
+  // A. No owner: finds closest bed immediately upon spawn
+  const noOwnerPerception = createPerception(fakeBot as any, undefined, { now: () => simulatedTime });
+  const wNoOwner = noOwnerPerception.sample();
+  assert.deepStrictEqual(wNoOwner.nearbyBed, { x: 5, y: 64, z: 5 });
+
+  // B. With owner: without base, bed search does not trigger
   const perception = createPerception(fakeBot as any, 'dakaz', { now: () => simulatedTime });
-  
-  // 1. Initially without base, finds closest bed within 24 blocks of bot
   const w1 = perception.sample();
-  assert.deepStrictEqual(w1.nearbyBed, { x: 5, y: 64, z: 5 });
+  assert.strictEqual(w1.nearbyBed, null);
   assert.strictEqual(w1.spawnPoint, null);
+
+  // 1. Owner sets base -> searches around base and finds bed1
+  perception.setBase({ x: 0, y: 64, z: 0 });
+  const wBase = perception.sample();
+  assert.deepStrictEqual(wBase.nearbyBed, { x: 5, y: 64, z: 5 });
 
   // 2. Spawn point is set -> no longer searches for bed
   perception.setSpawnPoint({ x: 5, y: 64, z: 5 });
@@ -49,7 +85,7 @@ test('spawn perception: autonomous bed discovery and base change refresh', () =>
   assert.deepStrictEqual(w5.nearbyBed, { x: 100, y: 64, z: 100 });
 });
 
-test('spawn integration: bot automatically sets spawn point at nearby bed, reports in chat, and re-triggers on base update', async () => {
+test('spawn integration: bot automatically sets spawn point at nearby bed after !base, reports in chat, and re-triggers on base update', async () => {
   let simulatedTime = 1000;
   class SpawnTestBot extends EventEmitter {
     entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
@@ -88,14 +124,19 @@ test('spawn integration: bot automatically sets spawn point at nearby bed, repor
   const companion = attachCompanion(bot as any, 'dakaz', { now: () => simulatedTime });
   bot.emit('spawn');
 
-  // 1. Initial idle tick -> Bot detects nearbyBed and starts SetSpawn (Priority 15)
+  // 1. Initial idle tick without base -> Bot does not search for bed yet
+  bot.emit('physicsTick');
+  assert.strictEqual(companion.snapshot().world.nearbyBed, null);
+
+  // 2. Owner sets base -> Bot detects nearbyBed around base and starts SetSpawn (Priority 15)
+  bot.emit('chat', 'dakaz', '!base');
   bot.emit('physicsTick');
   bot.emit('physicsTick');
 
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /SetSpawn/);
   assert.match(companion.snapshot().runtime.lockedResources.HAND ?? '', /SetSpawn/);
 
-  // 2. NormalFollow (Priority 20) preempts SetSpawn (15) if master moves away
+  // 3. NormalFollow (Priority 20) preempts SetSpawn (15) if master moves away
   simulatedTime += 2000;
   bot.emit('chat', 'dakaz', '!follow');
   ownerEntity.position = { x: 15, y: 64, z: 0 };
@@ -104,7 +145,7 @@ test('spawn integration: bot automatically sets spawn point at nearby bed, repor
 
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
 
-  // 3. Bot returns to stay/idle near bed
+  // 4. Bot returns to stay/idle near bed
   simulatedTime += 2000;
   bot.emit('chat', 'dakaz', '!stop');
   bot.emit('physicsTick');
@@ -125,7 +166,7 @@ test('spawn integration: bot automatically sets spawn point at nearby bed, repor
   companion.dispose();
 });
 
-test('spawn integration: 30s timeout triggers 60s failure cooldown without deadlock', () => {
+test('spawn integration: 30s timeout triggers 60s failure cooldown without deadlock in no-owner mode', () => {
   let simulatedTime = 1000;
   class TimeoutSpawnBot extends EventEmitter {
     entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
@@ -146,10 +187,10 @@ test('spawn integration: 30s timeout triggers 60s failure cooldown without deadl
   }
 
   const bot = new TimeoutSpawnBot();
-  const companion = attachCompanion(bot as any, 'dakaz', { now: () => simulatedTime });
+  const companion = attachCompanion(bot as any, '', { now: () => simulatedTime });
   bot.emit('spawn');
 
-  // Start SetSpawn
+  // Start SetSpawn immediately in no-owner mode
   bot.emit('physicsTick');
   bot.emit('physicsTick');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /SetSpawn/);
@@ -174,3 +215,4 @@ test('spawn integration: 30s timeout triggers 60s failure cooldown without deadl
 
   companion.dispose();
 });
+

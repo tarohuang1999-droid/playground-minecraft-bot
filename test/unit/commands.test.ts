@@ -80,6 +80,11 @@ test('commands integration: !base sets base coordinate and confirms in chat', ()
     entities: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     sent: string[] = [];
+    findBlock = (options: any) => {
+      const point = (options.point || this.entity.position).floored();
+      assert.strictEqual(typeof point.x, 'number');
+      return null;
+    };
     chat(message: string) { this.sent.push(message); }
   }
 

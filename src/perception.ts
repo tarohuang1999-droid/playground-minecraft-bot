@@ -1,5 +1,6 @@
 import { createWorld, type Position, type WorldState } from './blackboard.ts';
 import { THRESHOLDS } from './policy.ts';
+import { Vec3 } from 'vec3';
 
 export const ARMOR_SLOTS = {
   head: 5,
@@ -179,7 +180,7 @@ export interface DynamicHostileTarget {
   isOwner: boolean;
 }
 
-export function createPerception(bot: PerceptionSource, owner: string, options: { now?: () => number } = {}) {
+export function createPerception(bot: PerceptionSource, owner?: string, options: { now?: () => number } = {}) {
   let lastHealth = bot.health;
   let lastDamageTime = 0;
   const dynamicThreats = new Map<number, DynamicHostileTarget>();
@@ -274,13 +275,25 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
       world.bedNeedsRefresh = bedNeedsRefresh;
       world.nearbyBed = null;
 
-      if (bedCooldownUntil <= now && (currentSpawnPoint === null || bedNeedsRefresh)) {
+      // Stage 13 / User setup 重生點:
+      // - 無主人: 找到最近的床並設定重生點
+      // - 有主人有base: 則會自動找base 周圍的空床設定 並設定重生點
+      const hasOwner = !!owner && owner.trim().length > 0;
+      const shouldSearchBed = hasOwner ? (currentBase !== null) : true;
+
+      if (shouldSearchBed && bedCooldownUntil <= now && (currentSpawnPoint === null || bedNeedsRefresh)) {
         const centerPos = currentBase ?? origin;
         if (centerPos && typeof (bot as any).findBlock === 'function') {
+          const point = new Vec3(centerPos.x, centerPos.y, centerPos.z);
           const bedBlock = (bot as any).findBlock({
-            matching: (b: any) => b?.name?.includes('bed'),
+            matching: (b: any) => {
+              if (!b || !b.name || !b.name.includes('bed')) return false;
+              const props = typeof b.getProperties === 'function' ? b.getProperties() : b._properties;
+              if (props && (props.occupied === 'true' || props.occupied === true)) return false;
+              return true;
+            },
             maxDistance: 24,
-            point: centerPos,
+            point,
           });
           if (bedBlock && bedBlock.position) {
             world.nearbyBed = position(bedBlock.position);
@@ -288,6 +301,8 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
         } else if (centerPos && (bot as any).blocks) {
           for (const b of Object.values((bot as any).blocks as Record<string, any>)) {
             if (b?.name?.includes('bed') && b?.position) {
+              const props = typeof b.getProperties === 'function' ? b.getProperties() : b._properties;
+              if (props && (props.occupied === 'true' || props.occupied === true)) continue;
               const d = distance(centerPos, b.position);
               if (d <= 24) {
                 world.nearbyBed = position(b.position);
@@ -305,14 +320,16 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
         }
       }
 
-      let master = bot.players[owner]?.entity;
-      const matchKey = Object.keys(bot.players).find(k => k.toLowerCase() === owner.toLowerCase());
-      if (!master && matchKey) master = bot.players[matchKey]?.entity;
-      if (!master && (bot.players[owner] || matchKey) && bot.entities) {
-        const matchEntity = Object.values(bot.entities).find(e => (e.username ?? e.name ?? '').toLowerCase() === owner.toLowerCase());
-        if (matchEntity) master = matchEntity;
+      if (owner && owner.trim().length > 0) {
+        let master = bot.players[owner]?.entity;
+        const matchKey = Object.keys(bot.players).find(k => k.toLowerCase() === owner.toLowerCase());
+        if (!master && matchKey) master = bot.players[matchKey]?.entity;
+        if (!master && (bot.players[owner] || matchKey) && bot.entities) {
+          const matchEntity = Object.values(bot.entities).find(e => (e.username ?? e.name ?? '').toLowerCase() === owner.toLowerCase());
+          if (matchEntity) master = matchEntity;
+        }
+        if (master) world.master = { username: owner, entityId: master.id, position: position(master.position), distance: distance(origin, master.position) };
       }
-      if (master) world.master = { username: owner, entityId: master.id, position: position(master.position), distance: distance(origin, master.position) };
       for (const entity of Object.values(bot.entities)) {
         if (!entity?.position) continue;
         if (entity.id === bot.entity.id) continue;
