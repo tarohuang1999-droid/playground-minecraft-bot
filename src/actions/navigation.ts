@@ -10,6 +10,13 @@ import {
   type NavigationRunContext,
   type NavigationTaskState,
 } from './navigation-guard.ts';
+import {
+  startMicroUnstuck,
+  stepMicroUnstuck,
+  cancelMicroUnstuck,
+  checkLateralSafety,
+  NavigationRecoveryCoordinator,
+} from './navigation-recovery.ts';
 
 export {
   DIG_WHITELIST,
@@ -18,6 +25,11 @@ export {
   createNavigationTaskState,
   type NavigationRunContext,
   type NavigationTaskState,
+  startMicroUnstuck,
+  stepMicroUnstuck,
+  cancelMicroUnstuck,
+  checkLateralSafety,
+  NavigationRecoveryCoordinator,
 };
 
 const { GoalFollow, GoalNear, GoalNearXZ } = goals;
@@ -489,6 +501,7 @@ export interface NavigationCallbacks {
   onReturnArrived?: () => void;
   onSpawnSet?: (pos: { x: number; y: number; z: number }) => void;
   onSpawnFailed?: () => void;
+  clock?: { now(): number };
 }
 
 export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, callbacks?: NavigationCallbacks) {
@@ -496,6 +509,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
   const boundary = new NavigationExecutionBoundary();
   boundary.install(bot);
   let currentTaskState: NavigationTaskState | null = null;
+  const getTime = () => callbacks?.clock?.now() ?? Date.now();
 
   function attachTaskContext(request: ActionRequest, ctx: ActionContext): NavigationRunContext {
     const canDig = Boolean(request.params.canDig);
@@ -526,10 +540,15 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
   function followAdapter(range: number, exitDistance: number): AdapterFactory {
     return (request: ActionRequest): ActionAdapter => {
       let activeGoal: unknown = null;
-      let lastPos: { x: number; y: number; z: number } | null = null;
-      let lastProgressTime = 0;
-      let lastRepathTime = 0;
       let isJumping = false;
+      const coordinator = new NavigationRecoveryCoordinator(
+        bot,
+        () => currentTaskState,
+        boundary,
+        doorManager,
+        getTime,
+        logger
+      );
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -551,17 +570,21 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             distance: snapshot.world.master.distance,
             targetPos: target.position,
           });
-          const now = Date.now();
-          lastProgressTime = now;
-          lastRepathTime = now;
-          if (bot.entity?.position) {
-            lastPos = { ...bot.entity.position };
-          }
+
+          coordinator.start();
           activeGoal = new GoalFollow(target as any, range);
           bot.pathfinder.setGoal(activeGoal, true);
         },
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
+
+          // Check if micro-unstuck or recovery stall handling is in progress
+          const rec = coordinator.update(() => {
+            if (activeGoal) bot.pathfinder?.setGoal(activeGoal, true);
+          });
+          if (rec.actionResult) return rec.actionResult;
+          if (rec.isStuckHandling) return;
+
           const snapshot = ctx.getSnapshot();
           const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
           if (!target) {
@@ -578,7 +601,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
           const vertDist = Math.abs(dy);
 
-          // Exit only when close in 3D space (within 1.2 blocks) AND height-aligned (|dy| <= 1.2)
+          // Exit only when close in 3D space (within exitDistance) AND height-aligned (|dy| <= 1.2)
           if (dist3D <= exitDistance && vertDist <= 1.2) {
             logger?.info(`[navigation] reached target (distance ${dist3D.toFixed(1)} <= ${exitDistance}, dy=${dy.toFixed(1)})`);
             bot.pathfinder?.setGoal(null);
@@ -586,18 +609,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'SUCCESS' };
           }
 
-          const now = Date.now();
-
           // 1. Proactive Door Opening:
-          const openedDoor = doorManager.tryOpenDoorInFront(bot, logger);
-          if (openedDoor) {
-            lastProgressTime = now;
-            if (now - lastRepathTime > 500) {
-              lastRepathTime = now;
-              activeGoal = new GoalFollow(target as any, range);
-              bot.pathfinder?.setGoal(activeGoal, true);
-            }
-          }
+          doorManager.tryOpenDoorInFront(bot, logger);
 
           // 2. Ladder / Vine Climbing Check:
           if (isClimbingLadder(bot)) {
@@ -618,43 +631,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               isJumping = false;
             }
           }
-
-          // 4. Obstruction Detour & Stuck Detection:
-          // If bot hasn't made progress towards goal, or path is empty/idle while distance > exitDistance
-          const currentPos = bot.entity?.position;
-          if (currentPos && lastPos) {
-            const mdx = currentPos.x - lastPos.x;
-            const mdy = currentPos.y - lastPos.y;
-            const mdz = currentPos.z - lastPos.z;
-            const movedDist = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
-            if (movedDist >= 0.15) {
-              lastPos = { ...currentPos };
-              lastProgressTime = now;
-            }
-          } else if (currentPos) {
-            lastPos = { ...currentPos };
-            lastProgressTime = now;
-          }
-
-          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > 1000;
-          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 600;
-
-          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1200) {
-            logger?.info('[navigation] path obstructed or idle, recalculating detour around obstacle...', {
-              distance: dist3D,
-              progressStalled,
-              pathfinderIdle,
-            });
-            lastRepathTime = now;
-            lastProgressTime = now;
-            if (currentPos) lastPos = { ...currentPos };
-            activeGoal = new GoalFollow(target as any, range);
-            bot.pathfinder?.setGoal(activeGoal, true);
-          }
         },
         cancel() {
           logger?.info('[navigation] GoalFollow cancelled');
+          coordinator.cancel();
           activeGoal = null;
           boundary.setActiveContext(null);
           if (typeof (bot as any).stopDigging === 'function') {
@@ -665,7 +645,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           doorManager.reset();
         },
         isStopped(): boolean {
-          return !boundary.isInFlight() && !doorManager.isInFlight();
+          return coordinator.isStopped();
         },
       };
     };
@@ -937,10 +917,15 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     return (request: ActionRequest): ActionAdapter => {
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
-      let lastPos: { x: number; y: number; z: number } | null = null;
-      let lastProgressTime = 0;
-      let lastRepathTime = 0;
       let isJumping = false;
+      const coordinator = new NavigationRecoveryCoordinator(
+        bot,
+        () => currentTaskState,
+        boundary,
+        doorManager,
+        getTime,
+        logger
+      );
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -969,18 +954,24 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           attachTaskContext(request, ctx);
           logger?.info(`[navigation] ComeOnce started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
-          const now = Date.now();
-          lastProgressTime = now;
-          lastRepathTime = now;
-          if (bot.entity?.position) {
-            lastPos = { ...bot.entity.position };
-          }
+          coordinator.start();
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
           bot.pathfinder.setGoal(activeGoal, false);
         },
 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
+
+          // Check if micro-unstuck or recovery stall handling is in progress
+          const rec = coordinator.update(() => {
+            if (targetPos) {
+              activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
+              bot.pathfinder?.setGoal(activeGoal, false);
+            }
+          });
+          if (rec.actionResult) return rec.actionResult;
+          if (rec.isStuckHandling) return;
+
           const snapshot = ctx.getSnapshot();
 
           if (!targetPos) {
@@ -1001,7 +992,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'SUCCESS' };
           }
 
-          const now = Date.now();
           doorManager.tryOpenDoorInFront(bot, logger);
 
           if (isClimbingLadder(bot)) {
@@ -1017,34 +1007,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               isJumping = false;
             }
           }
-
-          if (currentPos && lastPos) {
-            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
-            if (mdist >= 0.15) {
-              lastPos = { ...currentPos };
-              lastProgressTime = now;
-            }
-          } else if (currentPos) {
-            lastPos = { ...currentPos };
-            lastProgressTime = now;
-          }
-
-          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > 1200;
-          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 600;
-
-          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1200) {
-            logger?.info('[navigation] ComeOnce path obstructed or idle, recalculating...', { dist });
-            lastRepathTime = now;
-            lastProgressTime = now;
-            if (currentPos) lastPos = { ...currentPos };
-            activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
-            bot.pathfinder?.setGoal(activeGoal, false);
-          }
         },
 
         cancel() {
           logger?.info('[navigation] ComeOnce cancelled');
+          coordinator.cancel();
           activeGoal = null;
           targetPos = null;
           boundary.setActiveContext(null);
@@ -1056,7 +1023,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           doorManager.reset();
         },
         isStopped(): boolean {
-          return !boundary.isInFlight() && !doorManager.isInFlight();
+          return coordinator.isStopped();
         },
       };
     };
@@ -1066,10 +1033,15 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     return (request: ActionRequest): ActionAdapter => {
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
-      let lastPos: { x: number; y: number; z: number } | null = null;
-      let lastProgressTime = 0;
-      let lastRepathTime = 0;
       let isJumping = false;
+      const coordinator = new NavigationRecoveryCoordinator(
+        bot,
+        () => currentTaskState,
+        boundary,
+        doorManager,
+        getTime,
+        logger
+      );
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -1098,18 +1070,24 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           attachTaskContext(request, ctx);
           logger?.info(`[navigation] ReturnToBase started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
-          const now = Date.now();
-          lastProgressTime = now;
-          lastRepathTime = now;
-          if (bot.entity?.position) {
-            lastPos = { ...bot.entity.position };
-          }
+          coordinator.start();
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
           bot.pathfinder.setGoal(activeGoal, false);
         },
 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
+
+          // Check if micro-unstuck or recovery stall handling is in progress
+          const rec = coordinator.update(() => {
+            if (targetPos) {
+              activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
+              bot.pathfinder?.setGoal(activeGoal, false);
+            }
+          });
+          if (rec.actionResult) return rec.actionResult;
+          if (rec.isStuckHandling) return;
+
           const snapshot = ctx.getSnapshot();
 
           if (!targetPos) {
@@ -1130,7 +1108,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'SUCCESS' };
           }
 
-          const now = Date.now();
           doorManager.tryOpenDoorInFront(bot, logger);
 
           if (isClimbingLadder(bot)) {
@@ -1146,34 +1123,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               isJumping = false;
             }
           }
-
-          if (currentPos && lastPos) {
-            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
-            if (mdist >= 0.15) {
-              lastPos = { ...currentPos };
-              lastProgressTime = now;
-            }
-          } else if (currentPos) {
-            lastPos = { ...currentPos };
-            lastProgressTime = now;
-          }
-
-          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > 1200;
-          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 600;
-
-          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1200) {
-            logger?.info('[navigation] ReturnToBase path obstructed or idle, recalculating...', { dist });
-            lastRepathTime = now;
-            lastProgressTime = now;
-            if (currentPos) lastPos = { ...currentPos };
-            activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
-            bot.pathfinder?.setGoal(activeGoal, false);
-          }
         },
 
         cancel() {
           logger?.info('[navigation] ReturnToBase cancelled');
+          coordinator.cancel();
           activeGoal = null;
           targetPos = null;
           boundary.setActiveContext(null);
@@ -1185,7 +1139,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           doorManager.reset();
         },
         isStopped(): boolean {
-          return !boundary.isInFlight() && !doorManager.isInFlight();
+          return coordinator.isStopped();
         },
       };
     };
@@ -1350,6 +1304,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     comeOnce: comeOnceAdapter(callbacks?.onComeArrived),
     returnToBase: returnToBaseAdapter(callbacks?.onReturnArrived),
     setSpawn: setSpawnAdapter(callbacks?.onSpawnSet, callbacks?.onSpawnFailed),
+    doorManager,
     getTaskState: () => currentTaskState,
     boundary,
   };
