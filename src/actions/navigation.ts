@@ -15,6 +15,8 @@ import {
   stepMicroUnstuck,
   cancelMicroUnstuck,
   checkLateralSafety,
+  findDetourWaypoint,
+  checkChannelToTarget,
   NavigationRecoveryCoordinator,
 } from './navigation-recovery.ts';
 
@@ -29,6 +31,8 @@ export {
   stepMicroUnstuck,
   cancelMicroUnstuck,
   checkLateralSafety,
+  findDetourWaypoint,
+  checkChannelToTarget,
   NavigationRecoveryCoordinator,
 };
 
@@ -579,10 +583,14 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
 
+          const snapshot = ctx.getSnapshot();
+          const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
+          const targetPos = target?.position ? { x: target.position.x, y: target.position.y, z: target.position.z } : null;
+
           // Check if micro-unstuck or recovery stall handling is in progress
           const rec = coordinator.update(() => {
             if (activeGoal) bot.pathfinder?.setGoal(activeGoal, true);
-          });
+          }, targetPos);
           if (rec.actionResult) {
             if (rec.actionResult.status === 'FAILURE') {
               callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
@@ -591,8 +599,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           if (rec.isStuckHandling) return;
 
-          const snapshot = ctx.getSnapshot();
-          const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
           if (!target) {
             logger?.warn('[navigation] target lost during follow');
             bot.pathfinder?.setGoal(null);
@@ -968,13 +974,21 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
 
+          const snapshot = ctx.getSnapshot();
+          if (!targetPos) {
+            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : snapshot.intent.targetPosition;
+            if (target) targetPos = { x: target.x, y: target.y, z: target.z };
+          }
+
           // Check if micro-unstuck or recovery stall handling is in progress
           const rec = coordinator.update(() => {
             if (targetPos) {
               activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
               bot.pathfinder?.setGoal(activeGoal, false);
             }
-          });
+          }, targetPos);
           if (rec.actionResult) {
             if (rec.actionResult.status === 'FAILURE') {
               callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
@@ -983,14 +997,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           if (rec.isStuckHandling) return;
 
-          const snapshot = ctx.getSnapshot();
-
           if (!targetPos) {
-            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-              ? { x: request.params.x, y: request.params.y, z: request.params.z }
-              : snapshot.intent.targetPosition;
-            if (target) targetPos = { x: target.x, y: target.y, z: target.z };
-            else return { status: 'FAILURE', reason: 'Target position missing' };
+            return { status: 'FAILURE', reason: 'Target position missing' };
           }
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
@@ -1045,6 +1053,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
       let isJumping = false;
+
       const coordinator = new NavigationRecoveryCoordinator(
         bot,
         () => currentTaskState,
@@ -1089,13 +1098,21 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
 
+          const snapshot = ctx.getSnapshot();
+          if (!targetPos) {
+            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : (snapshot.world.base ?? snapshot.world.spawnPoint);
+            if (target) targetPos = { x: target.x, y: target.y, z: target.z };
+          }
+
           // Check if micro-unstuck or recovery stall handling is in progress
           const rec = coordinator.update(() => {
             if (targetPos) {
               activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
               bot.pathfinder?.setGoal(activeGoal, false);
             }
-          });
+          }, targetPos);
           if (rec.actionResult) {
             if (rec.actionResult.status === 'FAILURE') {
               callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
@@ -1104,14 +1121,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           if (rec.isStuckHandling) return;
 
-          const snapshot = ctx.getSnapshot();
-
           if (!targetPos) {
-            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-              ? { x: request.params.x, y: request.params.y, z: request.params.z }
-              : (snapshot.world.base ?? snapshot.world.spawnPoint);
-            if (target) targetPos = { x: target.x, y: target.y, z: target.z };
-            else return { status: 'FAILURE', reason: 'Destination missing' };
+            return { status: 'FAILURE', reason: 'Destination missing' };
           }
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;

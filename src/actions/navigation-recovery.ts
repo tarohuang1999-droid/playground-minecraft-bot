@@ -1,7 +1,10 @@
 import { safeBlockAt, isDoorBlock, type NavigationBot, type NavigationLogger } from './navigation.ts';
 import type { NavigationTaskState } from './navigation-guard.ts';
+import { goals } from 'mineflayer-pathfinder';
 
-export const RECOVERY_DEADLINE_MS = 3000;
+const { GoalNear } = goals;
+
+export const RECOVERY_DEADLINE_MS = 15000;
 
 export function isSafeSupportBlock(block: any): boolean {
   if (!block || !block.name) return false;
@@ -21,6 +24,96 @@ export function isPassableBlock(block: any): boolean {
   if (isDoorBlock(block)) return true;
   if (name.includes('carpet') || name.includes('vine') || name.includes('ladder') || name.includes('grass')) return true;
   return false;
+}
+
+export function findDetourWaypoint(
+  bot: NavigationBot,
+  currentPos: { x: number; y: number; z: number },
+  targetPos: { x: number; y: number; z: number },
+  taskState: NavigationTaskState,
+  logger?: NavigationLogger
+): { pos: { x: number; y: number; z: number }; side: 'left' | 'right' } | null {
+  const dx = targetPos.x - currentPos.x;
+  const dz = targetPos.z - currentPos.z;
+  const len = Math.hypot(dx, dz) || 1;
+  const nx = dx / len;
+  const nz = dz / len;
+
+  // Perpendicular vectors (±90 degrees)
+  // Left: (nz, -nx), Right: (-nz, nx)
+  const sides: Array<'left' | 'right'> =
+    taskState.preferredSide === 'right' ? ['right', 'left'] : ['left', 'right'];
+
+  const dist = 6.0;
+
+  for (const side of sides) {
+    const vec = side === 'left' ? { x: nz, z: -nx } : { x: -nz, z: nx };
+    const candX = Math.round(currentPos.x + vec.x * dist);
+    const candZ = Math.round(currentPos.z + vec.z * dist);
+
+    // Skip if already attempted (within 1.5 blocks)
+    const already = taskState.attemptedWaypoints.some(
+      wp => Math.hypot(wp.x - candX, wp.z - candZ) <= 1.5
+    );
+    if (already) continue;
+
+    // Check vertical offsets [0, 1, -1, 2, -2]
+    const verticalOffsets = [0, 1, -1, 2, -2];
+    for (const dy of verticalOffsets) {
+      const candY = Math.round(currentPos.y) + dy;
+
+      // 1. Foot support at y - 0.5 must be solid ground
+      const support = safeBlockAt(bot, { x: candX, y: candY - 0.5, z: candZ });
+      if (!support || !isSafeSupportBlock(support)) continue;
+
+      // 2. Foot space at y + 0.1 must be passable
+      const foot = safeBlockAt(bot, { x: candX, y: candY + 0.1, z: candZ });
+      if (!foot || !isPassableBlock(foot)) continue;
+
+      // 3. Head space at y + 1.1 must be passable
+      const head = safeBlockAt(bot, { x: candX, y: candY + 1.1, z: candZ });
+      if (!head || !isPassableBlock(head)) continue;
+
+      logger?.info(`[recovery] found safe detour waypoint on ${side}: (${candX}, ${candY}, ${candZ})`);
+      return {
+        pos: { x: candX, y: candY, z: candZ },
+        side,
+      };
+    }
+  }
+
+  logger?.info('[recovery] no safe detour waypoint found on left or right');
+  return null;
+}
+
+export function checkChannelToTarget(
+  bot: NavigationBot,
+  fromPos: { x: number; y: number; z: number },
+  targetPos: { x: number; y: number; z: number },
+  maxSteps = 3
+): boolean {
+  const dx = targetPos.x - fromPos.x;
+  const dz = targetPos.z - fromPos.z;
+  const len = Math.hypot(dx, dz);
+  if (len < 1.0) return true;
+
+  const steps = Math.min(maxSteps, Math.floor(len));
+  for (let s = 1; s <= steps; s++) {
+    const px = Math.round(fromPos.x + (dx / len) * s);
+    const pz = Math.round(fromPos.z + (dz / len) * s);
+    const py = Math.round(fromPos.y);
+
+    const support = safeBlockAt(bot, { x: px, y: py - 0.5, z: pz });
+    if (!support || !isSafeSupportBlock(support)) return false;
+
+    const foot = safeBlockAt(bot, { x: px, y: py + 0.1, z: pz });
+    if (!foot || !isPassableBlock(foot)) return false;
+
+    const head = safeBlockAt(bot, { x: px, y: py + 1.1, z: pz });
+    if (!head || !isPassableBlock(head)) return false;
+  }
+
+  return true;
 }
 
 export function checkLateralSafety(
@@ -262,7 +355,10 @@ export class NavigationRecoveryCoordinator {
     (this.bot as any).on?.('path_reset', this.onPathReset);
   }
 
-  update(restoreGoal: () => void): { actionResult?: { status: 'FAILURE'; reason: string }; isStuckHandling: boolean } {
+  update(
+    restoreGoal: () => void,
+    targetPos?: { x: number; y: number; z: number } | null
+  ): { actionResult?: { status: 'FAILURE'; reason: string }; isStuckHandling: boolean } {
     const taskState = this.taskStateGetter();
     const now = this.getTime();
 
@@ -292,7 +388,7 @@ export class NavigationRecoveryCoordinator {
       if (movedDist >= 0.15) {
         this.lastPos = { ...currentPos };
         this.lastProgressTime = now;
-        if (taskState?.recoveryActive && taskState.normalMovingStart === 0) {
+        if (taskState?.recoveryActive && taskState.normalMovingStart === 0 && !taskState.activeWaypoint) {
           taskState.normalMovingStart = now;
         }
       }
@@ -311,7 +407,45 @@ export class NavigationRecoveryCoordinator {
       this.lastProgressTime = now;
     }
 
-    // 5. Check if stalled (1500ms initial stall, 800ms for retries within recovery)
+    // 5. Waypoint in-flight monitoring & mid-route probing
+    if (taskState?.activeWaypoint && currentPos) {
+      const distToWp = Math.hypot(currentPos.x - taskState.activeWaypoint.x, currentPos.z - taskState.activeWaypoint.z);
+      const dyToWp = Math.abs(currentPos.y - taskState.activeWaypoint.y);
+
+      // A. Check if arrived at waypoint
+      if (distToWp <= 1.8 && dyToWp <= 1.5) {
+        this.logger?.info('[recovery] arrived at detour waypoint', taskState.activeWaypoint);
+        taskState.activeWaypoint = null;
+        taskState.waypointPhase = 'none';
+
+        if (targetPos && checkChannelToTarget(this.bot, currentPos, targetPos)) {
+          this.logger?.info('[recovery] channel to target clear from waypoint, restoring original goal');
+          restoreGoal();
+          this.lastProgressTime = now;
+          taskState.normalMovingStart = now;
+          return { isStuckHandling: false };
+        }
+      } else if (taskState.lastWaypointNetPos && targetPos) {
+        // B. Mid-route probe check (>= 2 blocks net displacement from waypoint start and >= 500ms since last check)
+        const netMoved = Math.hypot(currentPos.x - taskState.lastWaypointNetPos.x, currentPos.z - taskState.lastWaypointNetPos.z);
+        if (netMoved >= 2.0 && (now - taskState.lastProbeCheckTime) >= 500 && taskState.probeCountThisWaypoint === 0) {
+          taskState.lastProbeCheckTime = now;
+          if (checkChannelToTarget(this.bot, currentPos, targetPos)) {
+            taskState.probeCountThisWaypoint = 1;
+            taskState.probeCount++;
+            this.logger?.info('[recovery] mid-route channel clear towards original goal, restoring goal early');
+            taskState.activeWaypoint = null;
+            taskState.waypointPhase = 'none';
+            restoreGoal();
+            this.lastProgressTime = now;
+            taskState.normalMovingStart = now;
+            return { isStuckHandling: false };
+          }
+        }
+      }
+    }
+
+    // 6. Check if stalled (1500ms initial stall, 800ms for retries within recovery)
     const stallThreshold = taskState?.recoveryActive ? 800 : 1500;
     const stalledByTime = (now - this.lastProgressTime) >= stallThreshold;
     const stalledByPath = this.pathStatus === 'noPath' || this.pathStatus === 'timeout' || this.pathResetReason === 'stuck';
@@ -335,7 +469,7 @@ export class NavigationRecoveryCoordinator {
         }
 
         if (now >= taskState.recoveryDeadline) {
-          this.logger?.warn('[recovery] recovery deadline expired (3s), stopping navigation');
+          this.logger?.warn('[recovery] recovery deadline expired, stopping navigation');
           return {
             actionResult: {
               status: 'FAILURE',
@@ -345,13 +479,52 @@ export class NavigationRecoveryCoordinator {
           };
         }
 
+        // If stalled while heading to an active waypoint, clear it
+        if (taskState.activeWaypoint) {
+          this.logger?.info('[recovery] stalled while heading to waypoint, discarding waypoint');
+          taskState.activeWaypoint = null;
+          taskState.waypointPhase = 'none';
+        }
+
+        // Try Micro-Unstuck (up to 3 attempts)
         if (taskState.microUnstuckAttempts < 3) {
           const started = startMicroUnstuck(this.bot, taskState, now, this.logger);
           if (started) {
             return { isStuckHandling: true };
           }
-        } else {
-          this.logger?.warn('[recovery] micro-unstuck attempts exhausted (3/3), path obstructed');
+        }
+
+        // Micro-Unstuck exhausted or cannot start: Try Detour Waypoint (up to 3 attempts)
+        if (targetPos && currentPos && taskState.waypointAttempts < 3) {
+          taskState.waypointAttempts++;
+          const cand = findDetourWaypoint(this.bot, currentPos, targetPos, taskState, this.logger);
+          if (cand) {
+            taskState.activeWaypoint = cand.pos;
+            taskState.preferredSide = cand.side;
+            taskState.attemptedWaypoints.push(cand.pos);
+            taskState.waypointPhase = 'navigating';
+            taskState.probeCountThisWaypoint = 0;
+            taskState.lastWaypointNetPos = { ...currentPos };
+            taskState.lastProbeCheckTime = now;
+            this.lastProgressTime = now;
+            this.logger?.info(`[recovery] detour waypoint attempt ${taskState.waypointAttempts}/3 selected: (${cand.pos.x}, ${cand.pos.y}, ${cand.pos.z})`);
+            try {
+              (this.bot.pathfinder as any)?.stop?.();
+            } catch {}
+            this.bot.pathfinder?.setGoal(new GoalNear(cand.pos.x, cand.pos.y, cand.pos.z, 1.5), false);
+            return { isStuckHandling: true };
+          } else {
+            this.logger?.warn(`[recovery] detour attempt ${taskState.waypointAttempts}/3: no safe candidate found`);
+            return {
+              actionResult: {
+                status: 'FAILURE',
+                reason: 'Path obstructed. Stopped; send !follow, !come or !return to retry.',
+              },
+              isStuckHandling: true,
+            };
+          }
+        } else if (taskState.waypointAttempts >= 3) {
+          this.logger?.warn('[recovery] all 3 detour waypoint attempts exhausted, path obstructed');
           return {
             actionResult: {
               status: 'FAILURE',
@@ -363,8 +536,8 @@ export class NavigationRecoveryCoordinator {
       }
     }
 
-    // 6. Check recovery exit condition: >= 5s normal movement and >= 6 blocks net displacement
-    if (taskState?.recoveryActive && !taskState.microUnstuckActive && taskState.normalMovingStart > 0) {
+    // 7. Check recovery exit condition: >= 5s normal movement and >= 6 blocks net displacement
+    if (taskState?.recoveryActive && !taskState.microUnstuckActive && !taskState.activeWaypoint && taskState.normalMovingStart > 0) {
       if (taskState.originPos && currentPos) {
         const netDist = Math.hypot(currentPos.x - taskState.originPos.x, currentPos.z - taskState.originPos.z);
         if (now - taskState.normalMovingStart >= 5000 && netDist >= 6.0) {
@@ -373,6 +546,8 @@ export class NavigationRecoveryCoordinator {
           taskState.microUnstuckAttempts = 0;
           taskState.microUnstuckDone = false;
           taskState.waypointAttempts = 0;
+          taskState.activeWaypoint = null;
+          taskState.attemptedWaypoints = [];
           taskState.normalMovingStart = 0;
         }
       }
@@ -387,6 +562,8 @@ export class NavigationRecoveryCoordinator {
     const taskState = this.taskStateGetter();
     if (taskState) {
       cancelMicroUnstuck(this.bot, taskState);
+      taskState.activeWaypoint = null;
+      taskState.waypointPhase = 'none';
     }
   }
 

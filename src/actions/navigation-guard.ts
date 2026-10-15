@@ -48,6 +48,11 @@ export interface NavigationTaskState {
   microUnstuckAttempts: number;
   microUnstuckUntil: number;
   waypointAttempts: number;
+  activeWaypoint: { x: number; y: number; z: number } | null;
+  waypointPhase: 'none' | 'navigating' | 'probing';
+  probeCountThisWaypoint: number;
+  lastWaypointNetPos: { x: number; y: number; z: number } | null;
+  lastProbeCheckTime: number;
   preferredSide: 'left' | 'right' | null;
   attemptedWaypoints: Array<{ x: number; y: number; z: number }>;
   originPos: { x: number; y: number; z: number } | null;
@@ -72,6 +77,11 @@ export function createNavigationTaskState(missionId: string, canDig = false, all
     microUnstuckAttempts: 0,
     microUnstuckUntil: 0,
     waypointAttempts: 0,
+    activeWaypoint: null,
+    waypointPhase: 'none',
+    probeCountThisWaypoint: 0,
+    lastWaypointNetPos: null,
+    lastProbeCheckTime: 0,
     preferredSide: null,
     attemptedWaypoints: [],
     originPos: null,
