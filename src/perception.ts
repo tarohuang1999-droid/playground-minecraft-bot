@@ -169,21 +169,75 @@ export function isHostileMob(entity: { name?: string; username?: string; type?: 
 const position = (value: Position): Position => ({ x: value.x, y: value.y, z: value.z });
 const distance = (a: Position, b: Position) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
-export function createPerception(bot: PerceptionSource, owner: string) {
+export interface DynamicHostileTarget {
+  entityId: number;
+  username?: string | undefined;
+  name?: string | undefined;
+  expiresAt: number;
+  maxHits?: number | undefined;
+  hitsDone: number;
+  isOwner: boolean;
+}
+
+export function createPerception(bot: PerceptionSource, owner: string, options: { now?: () => number } = {}) {
   let lastHealth = bot.health;
   let lastDamageTime = 0;
+  const dynamicThreats = new Map<number, DynamicHostileTarget>();
+
+  const getNow = () => (options.now ? options.now() : Date.now());
 
   return {
+    recordAttacker(
+      entity: { id: number; username?: string; name?: string },
+      config: { durationMs: number; maxHits?: number; isOwner: boolean }
+    ) {
+      const now = getNow();
+      dynamicThreats.set(entity.id, {
+        entityId: entity.id,
+        username: entity.username,
+        name: entity.name ?? entity.username,
+        expiresAt: now + config.durationMs,
+        maxHits: config.maxHits,
+        hitsDone: 0,
+        isOwner: config.isOwner,
+      });
+    },
+
+    notifyAttack(targetId: number) {
+      const threat = dynamicThreats.get(targetId);
+      if (!threat) return;
+      threat.hitsDone++;
+      if (threat.maxHits !== undefined && threat.hitsDone >= threat.maxHits) {
+        dynamicThreats.delete(targetId);
+      }
+    },
+
+    isThreat(entityId: number): boolean {
+      return dynamicThreats.has(entityId);
+    },
+
+    clearDynamicThreats() {
+      dynamicThreats.clear();
+    },
+
     sample(cooldowns?: Record<number, number>): WorldState {
       const world = createWorld(owner);
       const origin = bot.entity.position;
-      const now = Date.now();
+      const now = getNow();
       if (bot.health < lastHealth) {
         lastDamageTime = now;
       }
       lastHealth = bot.health;
       const tookDamageRecently = (now - lastDamageTime) < 2000;
       world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently };
+
+      // Prune expired dynamic threats
+      for (const [id, threat] of dynamicThreats.entries()) {
+        if (threat.expiresAt <= now) {
+          dynamicThreats.delete(id);
+        }
+      }
+
       let master = bot.players[owner]?.entity;
       const matchKey = Object.keys(bot.players).find(k => k.toLowerCase() === owner.toLowerCase());
       if (!master && matchKey) master = bot.players[matchKey]?.entity;
@@ -199,14 +253,15 @@ export function createPerception(bot: PerceptionSource, owner: string) {
         if (range > THRESHOLDS.observationRadius) continue;
         world.entities.push({ entityId: entity.id, name: entity.name ?? entity.username ?? 'unknown', position: position(entity.position), distance: range });
 
-        if (isHostileMob(entity as any)) {
+        const isDynamic = dynamicThreats.has(entity.id);
+        if (isHostileMob(entity as any) || isDynamic) {
           const isValid = (entity as any).isValid !== false;
           const health = (entity as any).health;
           const isAlive = health === undefined || health > 0;
           if (isValid && isAlive && range <= THRESHOLDS.combatExit) {
             world.threats.push({
               entityId: entity.id,
-              name: entity.name ?? entity.displayName ?? 'hostile',
+              name: entity.name ?? entity.displayName ?? (isDynamic ? (entity.username ?? 'player') : 'hostile'),
               position: position(entity.position),
               distance: range,
             });

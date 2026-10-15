@@ -330,3 +330,206 @@ test('integration: Follow preempted by Combat on zombie spawn, auto-resumes Foll
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
   assert.strictEqual(companion.snapshot().runtime.lockedResources.HAND, null);
 });
+
+test('perception: dynamic hostile targets tracks non-owner player for 30s and owner for 3s / 1 hit', () => {
+  let currentTime = 10000;
+  const fakeBot: PerceptionSource = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    health: 20,
+    food: 20,
+    players: { dakaz: { entity: { id: 2, position: { x: 3, y: 64, z: 0 } } } },
+    entities: {
+      '2': { id: 2, position: { x: 3, y: 64, z: 0 }, username: 'dakaz' },
+      '50': { id: 50, position: { x: 4, y: 64, z: 0 }, username: 'stranger', type: 'player' },
+    },
+    inventory: { emptySlotCount: () => 10, items: () => [] },
+    heldItem: null,
+  };
+
+  const perception = createPerception(fakeBot, 'dakaz', { now: () => currentTime });
+
+  // Initially: neither player is a threat (isHostileMob returns false)
+  let world = perception.sample();
+  assert.strictEqual(world.threats.length, 0);
+
+  // 1. Non-owner player attacks bot: 30s hostile
+  perception.recordAttacker({ id: 50, username: 'stranger' }, { durationMs: 30000, isOwner: false });
+  world = perception.sample();
+  assert.strictEqual(world.threats.length, 1);
+  assert.strictEqual(world.threats[0]?.entityId, 50);
+
+  // After 29s: still a threat
+  currentTime += 29000;
+  world = perception.sample();
+  assert.strictEqual(world.threats.length, 1);
+
+  // After 31s total: expired
+  currentTime += 2000;
+  world = perception.sample();
+  assert.strictEqual(world.threats.length, 0);
+
+  // 2. Owner attacks bot: 3s hostile, maxHits = 1
+  perception.recordAttacker({ id: 2, username: 'dakaz' }, { durationMs: 3000, maxHits: 1, isOwner: true });
+  world = perception.sample();
+  assert.strictEqual(world.threats.length, 1);
+  assert.strictEqual(world.threats[0]?.entityId, 2);
+
+  // After 1 hit: owner is immediately removed from threats
+  perception.notifyAttack(2);
+  world = perception.sample();
+  assert.strictEqual(world.threats.length, 0);
+});
+
+test('integration: owner attack unfollows (intent -> STAY) and triggers 1 counter-attack hit, then stops', async () => {
+  class OwnerCombatBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food: 20 = 20;
+    goalsSet: any[] = [];
+    pathfinder = {
+      setGoal: (goal: any, dynamic?: boolean) => { this.goalsSet.push({ goal, dynamic }); },
+      setMovements: (_m: any) => {},
+    };
+    entities: Record<number, any> = {};
+    players: Record<string, any> = {};
+    inventory = {
+      emptySlotCount: () => 36,
+      items: () => [{ type: 100, name: 'diamond_sword', id: 100 }],
+      slots: [],
+    };
+    heldItem: any = { name: 'diamond_sword' };
+    attacks: any[] = [];
+    equipCalls: any[] = [];
+    equip = async (item: any) => { this.equipCalls.push(item); };
+    attack = (target: any) => { this.attacks.push(target); };
+    lookAt = async () => {};
+    sent: string[] = [];
+    chat(message: string) { this.sent.push(message); }
+  }
+
+  const bot = new OwnerCombatBot();
+  const ownerEntity = { id: 2, position: { x: 2, y: 64, z: 0 }, username: 'dakaz', height: 1.8, health: 20, isValid: true };
+  bot.entities[2] = ownerEntity;
+  bot.players.dakaz = { entity: ownerEntity, username: 'dakaz' };
+
+  const companion = attachCompanion(bot as any, 'dakaz');
+  bot.emit('spawn');
+
+  // Master commands: follow
+  bot.emit('chat', 'dakaz', 'follow');
+  bot.emit('physicsTick'); bot.emit('physicsTick');
+  assert.strictEqual(companion.snapshot().intent.mode, 'FOLLOW');
+
+  // Master hits the bot!
+  bot.health = 18;
+  bot.emit('entityHurt', bot.entity, ownerEntity);
+
+  // Next tick processes enqueued intent and triggers Combat
+  bot.emit('physicsTick');
+  assert.strictEqual(companion.snapshot().intent.mode, 'STAY');
+  assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
+
+  // Allow equip async task to resolve and update tick to strike
+  await Promise.resolve();
+  bot.emit('physicsTick');
+
+  // 3. Bot hits owner back once
+  assert.strictEqual(bot.attacks.length, 1);
+  assert.strictEqual(bot.attacks[0]?.id, 2);
+
+  // 4. After 1 hit, owner is removed from threats, Combat finishes and bot remains in STAY mode
+  bot.emit('physicsTick'); bot.emit('physicsTick');
+  assert.strictEqual(companion.snapshot().runtime.lockedResources.MOVE, null);
+  assert.strictEqual(companion.snapshot().runtime.lockedResources.HAND, null);
+  assert.strictEqual(companion.snapshot().intent.mode, 'STAY');
+});
+
+test('integration: non-owner attack triggers 30s hostile chase and exits on expiration', () => {
+  let simulatedTime = 50000;
+  class NonOwnerCombatBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food: 20 = 20;
+    pathfinder = {
+      setGoal: () => {},
+      setMovements: () => {},
+    };
+    entities: Record<number, any> = {};
+    players: Record<string, any> = {};
+    inventory = {
+      emptySlotCount: () => 36,
+      items: () => [{ type: 100, name: 'iron_sword', id: 100 }],
+      slots: [],
+    };
+    heldItem: any = { name: 'iron_sword' };
+    attacks: any[] = [];
+    equip = async () => {};
+    attack = (target: any) => { this.attacks.push(target); };
+    lookAt = async () => {};
+    sent: string[] = [];
+    chat(message: string) { this.sent.push(message); }
+  }
+
+  const bot = new NonOwnerCombatBot();
+  const ownerEntity = { id: 2, position: { x: 5, y: 64, z: 0 }, username: 'dakaz' };
+  const griefer = { id: 88, position: { x: 3, y: 64, z: 0 }, username: 'griefer', type: 'player', height: 1.8, health: 20, isValid: true };
+  bot.entities[2] = ownerEntity;
+  bot.entities[88] = griefer;
+  bot.players.dakaz = { entity: ownerEntity, username: 'dakaz' };
+
+  const companion = attachCompanion(bot as any, 'dakaz', { now: () => simulatedTime });
+  bot.emit('spawn');
+
+  // Griefer swings arm and damages bot (source passed)
+  bot.emit('entityHurt', bot.entity, griefer);
+
+  // Next ticks: Combat triggers targeting griefer
+  bot.emit('physicsTick'); bot.emit('physicsTick');
+  assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
+  assert.ok(bot.attacks.length >= 1);
+  assert.strictEqual(bot.attacks[0]?.id, 88);
+
+  // Fast forward 31 seconds: hostility expires
+  simulatedTime += 31000;
+  bot.emit('physicsTick'); bot.emit('physicsTick'); bot.emit('physicsTick');
+
+  // Combat exits
+  assert.strictEqual(companion.snapshot().runtime.lockedResources.MOVE, null);
+});
+
+test('attacker inference: identifies attacker by recent arm swing when source is missing', () => {
+  class ArmSwingBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food: 20 = 20;
+    pathfinder = { setGoal: () => {}, setMovements: () => {} };
+    entities: Record<number, any> = {};
+    players: Record<string, any> = {};
+    inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
+    attacks: any[] = [];
+    equip = async () => {};
+    attack = (t: any) => { this.attacks.push(t); };
+    lookAt = async () => {};
+    chat() {}
+  }
+
+  const bot = new ArmSwingBot();
+  const playerA = { id: 5, position: { x: 2, y: 64, z: 0 }, username: 'attacker_player', type: 'player', height: 1.8, health: 20, isValid: true };
+  bot.entities[5] = playerA;
+
+  const companion = attachCompanion(bot as any, 'dakaz');
+  bot.emit('spawn');
+
+  // Player swings arm at bot
+  bot.emit('entitySwingArm', playerA);
+
+  // Bot is hurt without source argument
+  bot.emit('entityHurt', bot.entity);
+
+  // Next ticks: Combat engages attacker_player
+  bot.emit('physicsTick'); bot.emit('physicsTick');
+  assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
+  assert.ok(bot.attacks.length >= 1);
+  assert.strictEqual(bot.attacks[0]?.id, 5);
+});
+

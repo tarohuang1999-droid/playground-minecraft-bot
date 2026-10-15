@@ -7,7 +7,7 @@ import { createArbiter } from './execution/arbiter.ts';
 import { createExecutor } from './execution/executor.ts';
 import type { AdapterRegistry } from './execution/types.ts';
 import { createChat } from './actions/chat.ts';
-import { createPerception, type PerceptionSource } from './perception.ts';
+import { createPerception, isHostileMob, type PerceptionSource } from './perception.ts';
 import { parseCommand } from './commands.ts';
 import { createNavigation, setupMovements } from './actions/navigation.ts';
 import { createInventoryAdapters } from './actions/inventory.ts';
@@ -23,11 +23,22 @@ export interface CompanionPort extends PerceptionSource {
 export function attachCompanion(bot: CompanionPort, owner: string, options: { adapters?: AdapterRegistry; now?: () => number; logger?: Logger } = {}) {
   const logger = options.logger;
   const board = createBlackboard(owner);
-  const perception = createPerception(bot, owner);
+  const perception = createPerception(bot, owner, options.now ? { now: options.now } : {});
   const chat = createChat(message => bot.chat(message));
   const navigation = createNavigation(bot as any, logger);
   const inventory = createInventoryAdapters(bot as any, logger);
-  const combat = createCombatAdapter(bot as any, logger);
+  const combat = createCombatAdapter(bot as any, logger, {
+    isThreat: (targetId) => {
+      const entity = (bot as any).entities?.[targetId];
+      if (entity && isHostileMob(entity)) return true;
+      return perception.isThreat(targetId);
+    },
+    onAttack: (targetId) => {
+      perception.notifyAttack(targetId);
+      sample();
+      runner.requestUrgentTick();
+    },
+  });
   const hasPathfinderOrPlugin = !!(bot as any).pathfinder || typeof (bot as any).loadPlugin === 'function';
   const navigationAdapters = hasPathfinderOrPlugin ? {
     NormalFollow: navigation.normalFollow,
@@ -60,6 +71,8 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   });
   let active = false;
   let disposed = false;
+  const recentArmSwings = new Map<number, number>();
+
   function sample() {
     const runtime = executor.runtime();
     runner.enqueue({ type: 'world', world: perception.sample(runtime.cooldowns) });
@@ -67,6 +80,8 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   function reset() {
     active = false;
     logger?.info('[lifecycle] bot reset/pause');
+    recentArmSwings.clear();
+    perception.clearDynamicThreats();
     runner.pause();
     chat.reset();
   }
@@ -81,9 +96,50 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   function respawn() { if (active) reset(); }
   function physicsTick() { if (active) { sample(); runner.physicsTick(); } }
   function health() { if (active) { sample(); runner.requestUrgentTick(); } }
-  function entityHurt(entity: any) {
+  function entitySwingArm(entity: any) {
+    if (entity?.id != null) {
+      recentArmSwings.set(entity.id, Date.now());
+    }
+  }
+  function entityHurt(entity: any, source?: any) {
     if (active && (entity === (bot as any).entity || entity?.id === (bot as any).entity?.id)) {
       logger?.info('[combat] bot took damage, requesting urgent tick');
+
+      let attacker = source;
+      if (!attacker && (bot as any).entities) {
+        const selfPos = (bot as any).entity?.position;
+        const candidates = Object.values((bot as any).entities as Record<string, any>).filter((e: any) => {
+          if (!e?.position || e.id === (bot as any).entity?.id) return false;
+          const isPlayer = e.type === 'player' || !!e.username;
+          if (!isPlayer) return false;
+          const dist = selfPos ? Math.hypot(e.position.x - selfPos.x, e.position.y - selfPos.y, e.position.z - selfPos.z) : Infinity;
+          return dist <= 4.5;
+        });
+        candidates.sort((a: any, b: any) => {
+          const swingA = recentArmSwings.get(a.id) ?? 0;
+          const swingB = recentArmSwings.get(b.id) ?? 0;
+          return swingB - swingA;
+        });
+        attacker = candidates[0];
+      }
+
+      if (attacker) {
+        const isPlayer = attacker.type === 'player' || !!attacker.username;
+        if (isPlayer) {
+          const attackerName = (attacker.username ?? attacker.name ?? '').trim().toLowerCase();
+          const isOwner = !!owner && attackerName === owner.trim().toLowerCase();
+          if (isOwner) {
+            logger?.info('[combat] owner attacked bot: unfollowing (intent -> STAY) and counter-attacking once (3s threat)');
+            runner.enqueue({ type: 'intent', mode: 'STAY' });
+            chat.enqueue('Intent=STAY');
+            perception.recordAttacker(attacker, { durationMs: 3000, maxHits: 1, isOwner: true });
+          } else {
+            logger?.info(`[combat] non-owner player "${attacker.username ?? attacker.id}" attacked bot: counter-attacking for 30s`);
+            perception.recordAttacker(attacker, { durationMs: 30000, isOwner: false });
+          }
+        }
+      }
+
       sample();
       runner.requestUrgentTick();
     }
@@ -114,6 +170,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   bot.on('end', reset);
   bot.on('physicsTick', physicsTick);
   bot.on('health', health);
+  bot.on('entitySwingArm' as any, entitySwingArm as any);
   bot.on('entityHurt' as any, entityHurt as any);
   bot.on('chat', command);
   bot.on('whisper', command);
@@ -129,6 +186,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       bot.removeListener('end', reset);
       bot.removeListener('physicsTick', physicsTick);
       bot.removeListener('health', health);
+      bot.removeListener('entitySwingArm' as any, entitySwingArm as any);
       bot.removeListener('entityHurt' as any, entityHurt as any);
       bot.removeListener('chat', command);
       bot.removeListener('whisper', command);
@@ -137,8 +195,8 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
 }
 
 export function startBot(env: NodeJS.ProcessEnv = process.env) {
-  const owner = env.BOT_OWNER;
-  if (!owner || !/^[A-Za-z0-9_]{1,16}$/.test(owner)) throw new Error('Set BOT_OWNER to your Minecraft username (1–16 letters, digits or underscores)');
+  const owner = env.BOT_OWNER || '';
+  // if (!owner || !/^[A-Za-z0-9_]{1,16}$/.test(owner)) throw new Error('Set BOT_OWNER to your Minecraft username (1–16 letters, digits or underscores)');
   const port = Number(env.BOT_PORT ?? '25565');
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('BOT_PORT must be between 1 and 65535');
   const botName = env.BOT_USERNAME ?? 'CompanionBot';

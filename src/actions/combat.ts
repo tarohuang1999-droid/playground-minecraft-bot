@@ -43,7 +43,11 @@ export interface CombatLogger {
   error?(m: string, d?: unknown): void;
 }
 
-export function createCombatAdapter(bot: CombatBot, logger?: CombatLogger): AdapterFactory {
+export function createCombatAdapter(
+  bot: CombatBot,
+  logger?: CombatLogger,
+  options?: { isThreat?: (targetId: number) => boolean; onAttack?: (targetId: number) => void }
+): AdapterFactory {
   return (request: ActionRequest): ActionAdapter => {
     let activeGoal: unknown = null;
     let lastAttackTime = 0;
@@ -116,7 +120,14 @@ export function createCombatAdapter(bot: CombatBot, logger?: CombatLogger): Adap
           return { status: 'SUCCESS' };
         }
 
+        if (options?.isThreat && !options.isThreat(targetId)) {
+          logger?.info(`[combat] target ${targetId} is no longer considered a threat`);
+          bot.pathfinder?.setGoal(null);
+          return { status: 'SUCCESS' };
+        }
+
         const snapshot = ctx.getSnapshot();
+
         const selfPos = bot.entity?.position ?? snapshot.world.self.position;
         const dx = target.position.x - selfPos.x;
         const dy = target.position.y - selfPos.y;
@@ -151,6 +162,7 @@ export function createCombatAdapter(bot: CombatBot, logger?: CombatLogger): Adap
             if (typeof bot.attack === 'function' && (bot.entities as any)[targetId]) {
               logger?.info(`[combat] attacking target ${target.name ?? targetId} at dist=${dist.toFixed(1)}`);
               bot.attack(target as any);
+              options?.onAttack?.(targetId);
             }
           }
         }
