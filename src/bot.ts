@@ -11,6 +11,7 @@ import { createPerception, type PerceptionSource } from './perception.ts';
 import { parseCommand } from './commands.ts';
 import { createNavigation, setupMovements } from './actions/navigation.ts';
 import { createInventoryAdapters } from './actions/inventory.ts';
+import { createCombatAdapter } from './actions/combat.ts';
 import { createLogger, type Logger } from './logger.ts';
 
 export interface CompanionPort extends PerceptionSource {
@@ -26,6 +27,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   const chat = createChat(message => bot.chat(message));
   const navigation = createNavigation(bot as any, logger);
   const inventory = createInventoryAdapters(bot as any, logger);
+  const combat = createCombatAdapter(bot as any, logger);
   const hasPathfinderOrPlugin = !!(bot as any).pathfinder || typeof (bot as any).loadPlugin === 'function';
   const navigationAdapters = hasPathfinderOrPlugin ? {
     NormalFollow: navigation.normalFollow,
@@ -40,6 +42,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   const executor = createExecutor(createArbiter(), {
     Idle: () => ({ start() {}, cancel() {} }),
     Chat: chat.adapter,
+    Combat: combat,
     ...navigationAdapters,
     ...inventoryAdapters,
     ...options.adapters,
@@ -77,6 +80,13 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   function respawn() { if (active) reset(); }
   function physicsTick() { if (active) { sample(); runner.physicsTick(); } }
   function health() { if (active) { sample(); runner.requestUrgentTick(); } }
+  function entityHurt(entity: any) {
+    if (active && (entity === (bot as any).entity || entity?.id === (bot as any).entity?.id)) {
+      logger?.info('[combat] bot took damage, requesting urgent tick');
+      sample();
+      runner.requestUrgentTick();
+    }
+  }
   function command(username: string, message: string) {
     logger?.info(`[chat] from=${username}: "${message}" (configured owner=${owner})`);
     if (!active) {
@@ -103,6 +113,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   bot.on('end', reset);
   bot.on('physicsTick', physicsTick);
   bot.on('health', health);
+  bot.on('entityHurt' as any, entityHurt as any);
   bot.on('chat', command);
   bot.on('whisper', command);
   return {
@@ -117,6 +128,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       bot.removeListener('end', reset);
       bot.removeListener('physicsTick', physicsTick);
       bot.removeListener('health', health);
+      bot.removeListener('entityHurt' as any, entityHurt as any);
       bot.removeListener('chat', command);
       bot.removeListener('whisper', command);
     },

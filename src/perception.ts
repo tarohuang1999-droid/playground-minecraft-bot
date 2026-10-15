@@ -102,6 +102,9 @@ interface VisibleEntity {
   name?: string;
   username?: string;
   displayName?: string;
+  type?: string;
+  health?: number;
+  isValid?: boolean;
   getDroppedItem?: () => { name: string } | null;
 }
 export interface PerceptionSource {
@@ -118,15 +121,69 @@ export interface PerceptionSource {
   heldItem?: any;
   quickBarSlot?: number;
 }
+export const HOSTILE_MOBS: ReadonlySet<string> = new Set([
+  'zombie',
+  'zombie_villager',
+  'drowned',
+  'husk',
+  'skeleton',
+  'stray',
+  'wither_skeleton',
+  'spider',
+  'cave_spider',
+  'creeper',
+  'enderman',
+  'witch',
+  'slime',
+  'magma_cube',
+  'silverfish',
+  'endermite',
+  'blaze',
+  'ghast',
+  'phantom',
+  'pillager',
+  'vindicator',
+  'evoker',
+  'vex',
+  'ravager',
+  'shulker',
+  'guardian',
+  'elder_guardian',
+  'piglin_brute',
+  'zombified_piglin',
+  'hoglin',
+  'zoglin',
+  'warden',
+  'wither',
+  'ender_dragon',
+]);
+
+export function isHostileMob(entity: { name?: string; username?: string; type?: string; displayName?: string }): boolean {
+  if (!entity) return false;
+  // [RULE-08] Never attack players or master
+  if (entity.type === 'player' || entity.username) return false;
+  const name = (entity.name ?? entity.displayName ?? '').toLowerCase();
+  return HOSTILE_MOBS.has(name);
+}
+
 const position = (value: Position): Position => ({ x: value.x, y: value.y, z: value.z });
 const distance = (a: Position, b: Position) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
 export function createPerception(bot: PerceptionSource, owner: string) {
+  let lastHealth = bot.health;
+  let lastDamageTime = 0;
+
   return {
     sample(cooldowns?: Record<number, number>): WorldState {
       const world = createWorld(owner);
       const origin = bot.entity.position;
-      world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently: false };
+      const now = Date.now();
+      if (bot.health < lastHealth) {
+        lastDamageTime = now;
+      }
+      lastHealth = bot.health;
+      const tookDamageRecently = (now - lastDamageTime) < 2000;
+      world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently };
       let master = bot.players[owner]?.entity;
       const matchKey = Object.keys(bot.players).find(k => k.toLowerCase() === owner.toLowerCase());
       if (!master && matchKey) master = bot.players[matchKey]?.entity;
@@ -135,13 +192,26 @@ export function createPerception(bot: PerceptionSource, owner: string) {
         if (matchEntity) master = matchEntity;
       }
       if (master) world.master = { username: owner, entityId: master.id, position: position(master.position), distance: distance(origin, master.position) };
-      const now = Date.now();
       for (const entity of Object.values(bot.entities)) {
         if (!entity?.position) continue;
         if (entity.id === bot.entity.id) continue;
         const range = distance(origin, entity.position);
         if (range > THRESHOLDS.observationRadius) continue;
         world.entities.push({ entityId: entity.id, name: entity.name ?? entity.username ?? 'unknown', position: position(entity.position), distance: range });
+
+        if (isHostileMob(entity as any)) {
+          const isValid = (entity as any).isValid !== false;
+          const health = (entity as any).health;
+          const isAlive = health === undefined || health > 0;
+          if (isValid && isAlive && range <= THRESHOLDS.combatExit) {
+            world.threats.push({
+              entityId: entity.id,
+              name: entity.name ?? entity.displayName ?? 'hostile',
+              position: position(entity.position),
+              distance: range,
+            });
+          }
+        }
 
         const isItem = entity.name === 'item' || entity.name === 'Item' || entity.name === 'item_stack';
         if (isItem && range <= THRESHOLDS.pickupRadius) {
@@ -158,6 +228,7 @@ export function createPerception(bot: PerceptionSource, owner: string) {
         }
       }
       world.entities.sort((a, b) => a.distance - b.distance || a.entityId - b.entityId);
+      world.threats.sort((a, b) => a.distance - b.distance || a.entityId - b.entityId);
       world.nearbyDrops.sort((a, b) => a.distance - b.distance || a.entityId - b.entityId);
       world.inventory.freeSlots = bot.inventory.emptySlotCount();
 
