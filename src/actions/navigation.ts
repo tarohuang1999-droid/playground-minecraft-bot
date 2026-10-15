@@ -332,11 +332,19 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
             lastPos = { ...bot.entity.position };
           }
           activeGoal = new GoalFollow(target as any, range);
+          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
+          if ((bot.pathfinder as any)?.movements) {
+            (bot.pathfinder as any).movements.canDig = !handLocked;
+          }
           bot.pathfinder.setGoal(activeGoal, true);
         },
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
           const snapshot = ctx.getSnapshot();
+          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
+          if ((bot.pathfinder as any)?.movements) {
+            (bot.pathfinder as any).movements.canDig = !handLocked;
+          }
           const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
           if (!target) {
             logger?.warn('[navigation] target lost during follow');

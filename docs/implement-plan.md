@@ -1,6 +1,6 @@
 # Implementation Plan: Companion Bot Core (v1.0)
 
-> 2026-10-15：依使用者最新指示，全專案新實作使用 TypeScript；下列 `.js` 交付路徑對應為 `.ts`。Stage 1、2、3、4 已完成單元與整合驗收，包含 1 格跟隨距離、樓梯/半磚/爬梯支援、門主動開啟防抖動與座標相容修正，以及鄰近掉落物自動撿拾與冷卻機制。
+> 2026-10-15：依使用者最新指示，全專案新實作使用 TypeScript；下列 `.js` 交付路徑對應為 `.ts`。Stage 1、2、3、4、5 已完成單元與整合驗收，包含跟隨、開門防抖動、掉落物撿拾冷卻、自動穿裝、自動進食與雙通道並行（邊走邊吃）。
 
 - **目標讀者**：AI Coding Agent / 實作工程師
 - **前置依賴規範**：動工前必須完整讀取 `docs/sys-design/system-design-v1.1.md`，嚴格遵守其中之 `[RULE-01]` 至 `[RULE-10]`。
@@ -126,8 +126,8 @@
 - **防呆互斥**：`EquipBest (50)` 與 `RoutineEat (60)` 皆需要 `{HAND, INVENTORY}`，因此換裝不會打斷正在進行的進食。
 
 ### 5.4 驗收門檻 (Exit Criteria)
-- [ ] **邊走邊吃**：Bot 在跟隨主人移動的同時（`Follow` 持有 `MOVE, LOOK`），降低其飢餓度，Bot 能邊跑步邊拿出麵包吃完（`RoutineEat` 持有 `HAND, INVENTORY`），腳步不中斷。
-- [ ] **自動穿裝**：安全狀態下丟給 Bot 一套護甲，由 Stage 4 自動完成撿拾後，在隨後的 Tick 觸發 `EquipBest` 自動穿戴到身上。
+- [x] **邊走邊吃**：Bot 在跟隨主人移動的同時（`Follow` 持有 `MOVE, LOOK`），降低其飢餓度，Bot 能邊跑步邊拿出麵包吃完（`RoutineEat` 持有 `HAND, INVENTORY`），腳步不中斷。
+- [x] **自動穿裝**：安全狀態下丟給 Bot 一套護甲，由 Stage 4 自動完成撿拾後，在隨後的 Tick 觸發 `EquipBest` 自動穿戴到身上。
 
 ---
 

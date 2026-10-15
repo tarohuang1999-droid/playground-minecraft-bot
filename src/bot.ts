@@ -10,6 +10,7 @@ import { createChat } from './actions/chat.ts';
 import { createPerception, type PerceptionSource } from './perception.ts';
 import { parseCommand } from './commands.ts';
 import { createNavigation, setupMovements } from './actions/navigation.ts';
+import { createInventoryAdapters } from './actions/inventory.ts';
 import { createLogger, type Logger } from './logger.ts';
 
 export interface CompanionPort extends PerceptionSource {
@@ -24,14 +25,24 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   const perception = createPerception(bot, owner);
   const chat = createChat(message => bot.chat(message));
   const navigation = createNavigation(bot as any, logger);
+  const inventory = createInventoryAdapters(bot as any, logger);
   const hasPathfinderOrPlugin = !!(bot as any).pathfinder || typeof (bot as any).loadPlugin === 'function';
   const navigationAdapters = hasPathfinderOrPlugin ? {
     NormalFollow: navigation.normalFollow,
     CatchUpFollow: navigation.catchUpFollow,
     PickupItem: navigation.pickupItem,
   } : {};
+  const inventoryAdapters = {
+    RoutineEat: inventory.routineEat,
+    EmergencyEat: inventory.emergencyEat,
+    EquipBest: inventory.equipBest,
+  };
   const executor = createExecutor(createArbiter(), {
-    Idle: () => ({ start() {}, cancel() {} }), Chat: chat.adapter, ...navigationAdapters, ...options.adapters,
+    Idle: () => ({ start() {}, cancel() {} }),
+    Chat: chat.adapter,
+    ...navigationAdapters,
+    ...inventoryAdapters,
+    ...options.adapters,
   }, logger);
   const tree = createCompanionTree(executor.availableActions());
   const runner = createRunner({ board, executor, tree, ...(options.now ? { now: options.now } : {}),
