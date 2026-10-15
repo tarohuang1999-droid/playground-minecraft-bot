@@ -3,7 +3,7 @@ import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
 import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
 
-const { GoalFollow, GoalNear } = goals;
+const { GoalFollow, GoalNear, GoalNearXZ } = goals;
 
 export interface NavigationEntity {
   id: number;
@@ -295,6 +295,63 @@ function resolveTarget(bot: NavigationBot, targetId: number | null, owner: strin
   return null;
 }
 
+export function findSafestEscapePosition(
+  bot: NavigationBot,
+  threats: readonly { position: { x: number; y: number; z: number } }[],
+  origin: { x: number; y: number; z: number },
+  options: { radius?: number; dangerRadius?: number; angleCount?: number } = {}
+): { x: number; y: number; z: number } {
+  const radius = options.radius ?? 12;
+  const dangerRadius = options.dangerRadius ?? 10;
+  const angleCount = options.angleCount ?? 16;
+
+  let bestCandidate: { x: number; y: number; z: number } | null = null;
+  let lowestThreatCount = Infinity;
+  let maxMinDistance = -Infinity;
+
+  for (let i = 0; i < angleCount; i++) {
+    const angle = (i * 2 * Math.PI) / angleCount;
+    const cx = origin.x + radius * Math.cos(angle);
+    const cz = origin.z + radius * Math.sin(angle);
+    const cy = origin.y;
+
+    // Check terrain hazard (lava, void) if blockAt is available
+    if (typeof bot.blockAt === 'function') {
+      const block = safeBlockAt(bot, { x: cx, y: cy, z: cz });
+      const blockBelow = safeBlockAt(bot, { x: cx, y: cy - 1, z: cz });
+      if (block?.name?.includes('lava') || blockBelow?.name?.includes('lava')) {
+        continue; // Disqualify lava
+      }
+    }
+
+    let threatCount = 0;
+    let minThreatDist = Infinity;
+
+    for (const threat of threats) {
+      const d = Math.hypot(threat.position.x - cx, threat.position.z - cz);
+      if (d <= dangerRadius) {
+        threatCount++;
+      }
+      if (d < minThreatDist) {
+        minThreatDist = d;
+      }
+    }
+
+    if (threats.length === 0) {
+      minThreatDist = radius;
+    }
+
+    // Prioritize fewest threats in the area; break ties with maximum distance to closest threat
+    if (threatCount < lowestThreatCount || (threatCount === lowestThreatCount && minThreatDist > maxMinDistance)) {
+      lowestThreatCount = threatCount;
+      maxMinDistance = minThreatDist;
+      bestCandidate = { x: cx, y: cy, z: cz };
+    }
+  }
+
+  return bestCandidate ?? { x: origin.x - radius, y: origin.y, z: origin.z };
+}
+
 export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) {
   const doorManager = new DoorManager();
 
@@ -564,9 +621,87 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
     };
   }
 
+  function retreatAdapter(): AdapterFactory {
+    return (_request: ActionRequest): ActionAdapter => {
+      let activeGoal: unknown = null;
+      let targetPos: { x: number; y: number; z: number } | null = null;
+      let isJumping = false;
+
+      return {
+        start(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          if (!bot.pathfinder) {
+            logger?.warn('[navigation] cannot retreat: pathfinder is not loaded');
+            return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
+          }
+
+          const snapshot = ctx.getSnapshot();
+          const origin = bot.entity?.position ?? snapshot.world.self.position;
+          const threats = snapshot.world.threats;
+
+          targetPos = findSafestEscapePosition(bot, threats, origin);
+          logger?.info(`[navigation] Retreat started towards safest position (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+
+          if ((bot.pathfinder as any)?.movements) {
+            (bot.pathfinder as any).movements.canDig = false;
+          }
+
+          activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
+          bot.pathfinder.setGoal(activeGoal, true);
+        },
+
+        update(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+
+          const snapshot = ctx.getSnapshot();
+          const threats = snapshot.world.threats;
+          const threatsInRange = threats.filter(t => t.distance < THRESHOLDS.retreatExit);
+
+          // All threats reached safe distance (>= 18 blocks) or gone
+          if (threatsInRange.length === 0) {
+            logger?.info('[navigation] Retreat completed: reached safe distance from all threats');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'SUCCESS' };
+          }
+
+          // Obstacle jump check
+          if (shouldJumpObstacle(bot)) {
+            bot.setControlState?.('jump', true);
+            isJumping = true;
+          } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            bot.setControlState?.('jump', false);
+            isJumping = false;
+          }
+
+          // If reached current target point but threats are still pursuing (< retreatExit)
+          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
+          if (targetPos) {
+            const distToGoal = Math.hypot(targetPos.x - currentPos.x, targetPos.z - currentPos.z);
+            if (distToGoal <= 2.0) {
+              targetPos = findSafestEscapePosition(bot, threats, currentPos);
+              logger?.info(`[navigation] Re-sampling retreat position to (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+              activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
+              bot.pathfinder?.setGoal(activeGoal, true);
+            }
+          }
+        },
+
+        cancel() {
+          logger?.info('[navigation] Retreat cancelled');
+          activeGoal = null;
+          targetPos = null;
+          bot.setControlState?.('jump', false);
+          bot.pathfinder?.setGoal(null);
+        },
+      };
+    };
+  }
+
   return {
     normalFollow: followAdapter(THRESHOLDS.followExit, THRESHOLDS.followExit),
     catchUpFollow: followAdapter(THRESHOLDS.catchUpExit, THRESHOLDS.catchUpExit),
     pickupItem: pickupItemAdapter(),
+    retreat: retreatAdapter(),
   };
 }

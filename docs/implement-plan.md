@@ -154,26 +154,30 @@
 
 ---
 
-## Stage 7: 殘血逃跑功能 (Emergency Retreat)
+## Stage 7: 緊急逃跑功能 (Emergency Retreat)
 
 ### 7.1 階段目標
-實作最高優先級（Priority 100）的候選點採樣撤退邏輯，驗證「戰鬥中殘血 → 立即中止揮劍與追擊 → 反向逃往安全點 → 邊逃邊吃 → 脫險後恢復」的強制搶佔機制。
+實作最高優先級（Priority 100）的候選點採樣撤退邏輯，支援「殘血（HP <= 6）或遭遇過多敵對生物（>= 3 隻）」雙因子觸發逃跑，並採樣大範圍內敵人最少、最安全的座標進行撤離，驗證「戰鬥中危險 → 立即中止揮劍與追擊 → 逃往敵少安全點 → 邊逃邊吃 → 脫險後恢復」的強制搶佔機制。
 
 ### 7.2 交付檔案清單
-- 更新 `src/actions/navigation.ts`：新增 `Retreat` Action Adapter 與候選安全點採樣演算法。
-- 更新 `src/bt/subtrees/survival.ts`：實作急迫危險 Guard（`HP <= 6` 且 12 格內有威脅）與 `Retreat` 請求（Priority 100，請求 `{MOVE, LOOK}`）。
-- `test/unit/retreat.test.ts`：單元測試驗證逃跑候選點採樣、退避遲滯與鎖搶佔。
+- 更新 `src/actions/navigation.ts`：新增 `Retreat` Action Adapter 與大範圍最少敵人安全點採樣演算法（`findSafestEscapePosition`）。
+- 更新 `src/bt/subtrees/survival.ts`：實作急迫危險 Guard（殘血 `HP <= 6` 或周圍威脅 `>= 3` 隻）與 `Retreat` 請求（Priority 100，請求 `{MOVE, LOOK}`）。
+- 更新 `src/policy.ts`：新增 `retreatMobCount: 3` 門檻。
+- `test/unit/retreat.test.ts`：單元測試驗證逃跑候選點採樣（選敵最少處）、退避遲滯與鎖搶佔。
 
 ### 7.3 實作重點與限制
 - **整組搶佔中止 Combat**：當 `Retreat (100)` 觸發時，雖然它只需要 `{MOVE, LOOK}`，但 `arbiter` 必須將整個 `Combat (80)` 中止（同時釋放 `MOVE, LOOK, HAND, INVENTORY`），**嚴禁發生「腳在逃跑、手還在回頭揮劍」的撕裂現象**。
-- **8 方位候選點採樣**：以 Bot 為圓心、半徑 10 格採樣 8 個座標點，排除與威脅方向夾角 `< 90°`、目標點為岩漿/水/懸崖（高低差 `> 3` 格）的位置，選出最遠離威脅群的座標設定 `new GoalXZ(x, z)`。
-- **退出遲滯 (Exit Hysteresis)**：進入撤退後，必須滿足「距離威脅 `>= 18` 格且維持 3 秒」或「`HP >= 10`」才退出 `Retreat`，避免剛跑出 12.1 格又立刻回頭送死。
+- **大範圍敵少安全點採樣演算法**：以 Bot 為圓心、半徑 12 格採樣 16 個方位候選點，排除岩漿等地形危險，計算每個候選點周圍危險半徑內的敵方數量與最近敵人距離，優先選取「周圍敵人數量最少」且「距離最近敵人最遠」的安全座標設定 `new GoalNearXZ(x, z, 2.0)`。
+- **雙因子觸發機制**：
+  1. 殘血逃跑：`HP <= 6` 且 12 格內有敵對生物。
+  2. 群怪包圍逃跑：12 格內敵對生物數量 `>= 3` 隻。
+- **退出遲滯 (Exit Hysteresis)**：進入撤退後，必須滿足「所有威脅距離 `>= 18` 格」或「`HP >= 10` 且周圍無群怪」才退出 `Retreat`，避免剛跑出 12.1 格又立刻回頭送死。
 - **邊逃邊吃連動**：`Retreat (100)` 搶佔 `MOVE, LOOK` 時，`EmergencyEat (90)` 可同時獲得 `{HAND, INVENTORY}`，達成雙通道邊逃跑邊吃補品回血。
 
 ### 7.4 驗收門檻 (Exit Criteria)
-- [ ] 戰鬥中將 Bot 血量扣至 6 以下，`Combat` 在 100ms 內被強制 `cancel()`（停止攻擊與追擊），Bot 轉頭逃向遠離怪物的安全座標。
-- [ ] 逃跑期間沒有任何殘留的 `bot.attack` 或看向怪物的 `bot.lookAt` 被觸發。
-- [ ] 殘血逃跑時若持有食物，`EmergencyEat (90)` 正常觸發，邊跑邊吃回血。
+- [x] 戰鬥中將 Bot 血量扣至 6 以下或刷出群怪（>= 3 隻），`Combat` 在 100ms 內被強制 `cancel()`（停止攻擊與追擊），Bot 轉頭逃向周圍敵人最少的安全座標。
+- [x] 逃跑期間沒有任何殘留的 `bot.attack` 或看向怪物的 `bot.lookAt` 被觸發。
+- [x] 殘血逃跑時若持有食物，`EmergencyEat (90)` 正常觸發，邊跑邊吃回血。
 
 ---
 

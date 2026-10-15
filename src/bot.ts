@@ -33,6 +33,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     NormalFollow: navigation.normalFollow,
     CatchUpFollow: navigation.catchUpFollow,
     PickupItem: navigation.pickupItem,
+    Retreat: navigation.retreat,
   } : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,

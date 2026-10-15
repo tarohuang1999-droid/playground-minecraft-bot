@@ -16,6 +16,7 @@ export type ActionType = keyof typeof ACTION_POLICY;
 export const THRESHOLDS = {
   followEnter: 2.2, followExit: 1.2, catchUpEnter: 16, catchUpExit: 5,
   retreatHealth: 6, retreatEnter: 12, retreatExit: 18, retreatSafeMs: 3000,
+  retreatMobCount: 3,
   combatEnter: 8, combatExit: 16, combatMasterLimit: 24,
   routineFood: 16, emergencyFood: 6, emergencyHealth: 10,
   pickupRadius: 5, pickupMasterLimit: 10, failureCooldownMs: 30_000,
