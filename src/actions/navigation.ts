@@ -2,6 +2,23 @@ import { goals, Movements } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
 import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
+import {
+  DIG_WHITELIST,
+  PLACE_WHITELIST,
+  NavigationExecutionBoundary,
+  createNavigationTaskState,
+  type NavigationRunContext,
+  type NavigationTaskState,
+} from './navigation-guard.ts';
+
+export {
+  DIG_WHITELIST,
+  PLACE_WHITELIST,
+  NavigationExecutionBoundary,
+  createNavigationTaskState,
+  type NavigationRunContext,
+  type NavigationTaskState,
+};
 
 const { GoalFollow, GoalNear, GoalNearXZ } = goals;
 
@@ -237,7 +254,16 @@ export function shouldJumpObstacle(bot: NavigationBot): boolean {
   return false;
 }
 
-export function setupMovements(bot: NavigationBot, logger?: NavigationLogger): Movements | null {
+export interface SetupMovementsOptions {
+  canDig?: boolean;
+  allowBridge?: boolean;
+}
+
+export function setupMovements(
+  bot: NavigationBot,
+  logger?: NavigationLogger,
+  options?: SetupMovementsOptions
+): Movements | null {
   if (!bot.pathfinder) {
     logger?.warn('[navigation] cannot setup movements: pathfinder plugin not loaded');
     return null;
@@ -248,7 +274,10 @@ export function setupMovements(bot: NavigationBot, logger?: NavigationLogger): M
   }
   try {
     const movements = new Movements(bot as any);
-    movements.canDig = false;           // Detour around obstacles instead of digging through them
+    const canDig = options?.canDig ?? false;
+    const allowBridge = options?.allowBridge ?? false;
+
+    movements.canDig = canDig;
     movements.allowParkour = true;      // Jump over 1-block gaps
     movements.allowSprinting = false;   // Prevent sprint-simulation jump suppression bug
     movements.canOpenDoors = false;     // Keep false in pathfinder! Our DoorManager handles opening doors cleanly without pathfinder's useOne bug
@@ -258,6 +287,29 @@ export function setupMovements(bot: NavigationBot, logger?: NavigationLogger): M
     if (registry?.blocksByName?.vine) {
       movements.climbables.add(registry.blocksByName.vine.id);
     }
+
+    // Configure scaffoldingBlocks
+    if (!allowBridge) {
+      movements.scafoldingBlocks = [];
+    } else {
+      const ids: number[] = [];
+      if (registry?.itemsByName) {
+        for (const name of PLACE_WHITELIST) {
+          const item = registry.itemsByName[name];
+          if (item?.id != null) ids.push(item.id);
+        }
+      }
+      movements.scafoldingBlocks = ids;
+    }
+
+    // Wrap movements.safeToBreak to strictly enforce DIG_WHITELIST
+    const origSafeToBreak = movements.safeToBreak.bind(movements);
+    movements.safeToBreak = function (block: any) {
+      if (!movements.canDig) return false;
+      if (!block || !block.name) return false;
+      if (!DIG_WHITELIST.has(block.name)) return false;
+      return origSafeToBreak(block);
+    };
 
     // Patch movements.getBlock to ensure open doors and closed wooden doors are walkable in A*
     const origGetBlock = movements.getBlock;
@@ -276,6 +328,7 @@ export function setupMovements(bot: NavigationBot, logger?: NavigationLogger): M
       allowParkour: movements.allowParkour,
       allowSprinting: movements.allowSprinting,
       canOpenDoors: movements.canOpenDoors,
+      scafoldingBlocksCount: movements.scafoldingBlocks.length,
     });
     return movements;
   } catch (err: any) {
@@ -471,19 +524,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             lastPos = { ...bot.entity.position };
           }
           activeGoal = new GoalFollow(target as any, range);
-          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = !handLocked;
-          }
           bot.pathfinder.setGoal(activeGoal, true);
         },
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
           const snapshot = ctx.getSnapshot();
-          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = !handLocked;
-          }
           const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
           if (!target) {
             logger?.warn('[navigation] target lost during follow');
@@ -880,20 +925,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             lastPos = { ...bot.entity.position };
           }
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
-          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = !handLocked;
-          }
           bot.pathfinder.setGoal(activeGoal, false);
         },
 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
           const snapshot = ctx.getSnapshot();
-          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = !handLocked;
-          }
 
           if (!targetPos) {
             const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
@@ -1009,20 +1046,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             lastPos = { ...bot.entity.position };
           }
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
-          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = !handLocked;
-          }
           bot.pathfinder.setGoal(activeGoal, false);
         },
 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
           const snapshot = ctx.getSnapshot();
-          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = !handLocked;
-          }
 
           if (!targetPos) {
             const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')

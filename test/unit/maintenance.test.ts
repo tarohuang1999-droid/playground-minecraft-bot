@@ -112,11 +112,11 @@ test('dual-channel blending: Follow (MOVE, LOOK) and RoutineEat (HAND, INVENTORY
   assert.ok(winnerTypes.has('RoutineEat'));
 });
 
-test('dynamic canDig downgrade: canDig is disabled when HAND is locked by eating or equipping', () => {
+test('static capability contract: navigation does not dynamically toggle canDig on HAND locking', () => {
   const fakeBot: any = {
     pathfinder: {
       setGoal() {},
-      movements: { canDig: true },
+      movements: { canDig: false },
     },
     entities: { 2: { id: 2, position: { x: 5, y: 64, z: 0 } } },
     players: { dakaz: { entity: { id: 2, position: { x: 5, y: 64, z: 0 } } } },
@@ -143,15 +143,15 @@ test('dynamic canDig downgrade: canDig is disabled when HAND is locked by eating
 
   const adapter = nav.normalFollow(request);
 
-  // 1. HAND is free -> canDig is true
+  // 1. HAND is free -> canDig remains false (does not auto-enable)
   board.setRuntime({
     activeRuns: {}, results: {}, cooldowns: {},
     lockedResources: { MOVE: 'run-f1', LOOK: 'run-f1', HAND: null, INVENTORY: null, VOICE: null },
   });
   adapter.start(ctx);
-  assert.equal(fakeBot.pathfinder.movements.canDig, true);
+  assert.equal(fakeBot.pathfinder.movements.canDig, false);
 
-  // 2. HAND gets locked (e.g. RoutineEat running) -> canDig downgraded to false
+  // 2. HAND gets locked (e.g. RoutineEat running) -> canDig remains false
   board.setRuntime({
     activeRuns: {}, results: {}, cooldowns: {},
     lockedResources: { MOVE: 'run-f1', LOOK: 'run-f1', HAND: 'run-eat-1', INVENTORY: 'run-eat-1', VOICE: null },
@@ -159,13 +159,13 @@ test('dynamic canDig downgrade: canDig is disabled when HAND is locked by eating
   adapter.update!(ctx);
   assert.equal(fakeBot.pathfinder.movements.canDig, false);
 
-  // 3. HAND unlocked again -> canDig restored to true
+  // 3. HAND unlocked again -> canDig remains false
   board.setRuntime({
     activeRuns: {}, results: {}, cooldowns: {},
     lockedResources: { MOVE: 'run-f1', LOOK: 'run-f1', HAND: null, INVENTORY: null, VOICE: null },
   });
   adapter.update!(ctx);
-  assert.equal(fakeBot.pathfinder.movements.canDig, true);
+  assert.equal(fakeBot.pathfinder.movements.canDig, false);
 });
 
 test('inventory adapter: RoutineEat equips food to hand and calls consume', async () => {

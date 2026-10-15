@@ -28,6 +28,8 @@ export interface ActionAdapter {
   update?(ctx: ActionContext): void | ActionResult;
   // Must synchronously disable future control writes. A pending result alone may remain.
   cancel(): void;
+  // Optional confirmation of stoppage for actions with asynchronous side effects.
+  isStopped?(): boolean;
 }
 export type AdapterFactory = (request: ActionRequest) => ActionAdapter;
 export type AdapterRegistry = Partial<Record<ActionType, AdapterFactory>>;

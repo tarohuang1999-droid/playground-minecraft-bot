@@ -8,6 +8,8 @@ interface Run {
   token: number;
   status: 'RUNNING' | 'STOPPING' | 'FAULTED';
   startedAt: number;
+  stoppedAt?: number;
+  stoppedTick?: number;
   releaseAtTick: number;
   controller: AbortController;
   adapter: ActionAdapter;
@@ -25,9 +27,11 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
   let latestSnapshot: BlackboardSnapshot;
   let fault: string | null = null;
 
-  function stop(run: Run) {
+  function stop(run: Run, now = 0) {
     if (run.status !== 'RUNNING') return;
     run.status = 'STOPPING'; // Revoke before calling any user-provided cancellation code.
+    run.stoppedAt = now || Date.now();
+    run.stoppedTick = tick;
     run.controller.abort();
     run.releaseAtTick = tick + 1;
     try { run.adapter.cancel(); }
@@ -74,7 +78,7 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
       for (const id of results.keys()) if (!requestedIds.has(id)) results.delete(id);
       const winners = arbiter.select(requests);
       const winnerIds = new Set(winners.map(request => request.runId));
-      for (const run of runs.values()) if (!winnerIds.has(run.request.runId)) stop(run);
+      for (const run of runs.values()) if (!winnerIds.has(run.request.runId)) stop(run, now);
       if (fault) return;
       for (const request of winners) {
         if (generation !== roundGeneration || fault) return;
@@ -110,14 +114,39 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
         perform(run, () => adapter.start(run.ctx));
       }
     },
-    advanceTick(): boolean {
+    advanceTick(now?: number): boolean {
       tick++;
       let released = false;
       for (const [id, run] of runs) {
         if (run.status === 'STOPPING' && run.releaseAtTick <= tick) {
-          arbiter.release(id, run.token);
-          runs.delete(id);
-          released = true;
+          if (typeof run.adapter.isStopped === 'function') {
+            let stopped = false;
+            try {
+              stopped = run.adapter.isStopped();
+            } catch (error) {
+              run.status = 'FAULTED';
+              fault = `Action ${run.request.actionType} isStopped error: ${error}`;
+              logger?.error?.(`[executor] ${fault}`);
+              continue;
+            }
+            if (stopped) {
+              arbiter.release(id, run.token);
+              runs.delete(id);
+              released = true;
+            } else {
+              const elapsedTicks = tick - (run.stoppedTick ?? tick);
+              const elapsedMs = now && run.stoppedAt ? (now - run.stoppedAt) : (elapsedTicks * 50);
+              if (elapsedTicks >= 20 || elapsedMs >= 1000) {
+                run.status = 'FAULTED';
+                fault = `Action ${run.request.actionType} cancellation confirmation timed out after 1000ms`;
+                logger?.error?.(`[executor] ${fault}`);
+              }
+            }
+          } else {
+            arbiter.release(id, run.token);
+            runs.delete(id);
+            released = true;
+          }
         }
       }
       return released;
@@ -127,7 +156,7 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
       completions = [];
       for (const { run, result } of batch) {
         if (!run.ctx.isActive()) continue;
-        stop(run);
+        stop(run, now);
         results.set(run.request.runId, result);
         if (result.status === 'FAILURE' && run.request.actionType === 'PickupItem' && run.request.targetId !== null) {
           cooldowns.set(run.request.targetId, now + THRESHOLDS.failureCooldownMs);
