@@ -184,18 +184,153 @@
 
 ---
 
-## Stage 8: 綜合壓力與交接驗收測試 (Integration & Handoff Harness)
+## Stage 8: 指令系統重構與未知指令提示 (`!` 前綴規範化與 Command Unknown 回應)
 
 ### 8.1 階段目標
+重構聊天指令解析模組（`src/commands.ts`），全面規範所有指令皆須以 `!` 作為前綴（例如 `!follow`、`!unfollow`、`!stop`、`!status`、`!state`），忽略未帶 `!` 的一般對話，並在主人發送未知的 `!` 開頭指令時，於聊天室明確回應 `command unknown`。
+
+### 8.2 交付檔案清單
+- 更新 `src/commands.ts`：更新 `parseCommand`，強制 `!` 前綴檢查，並回傳未知指令事件（`unknown_command`）。
+- 更新 `src/bot.ts`：監聽指令解析結果，當收到未知 `!` 指令時，透過 `chat.enqueue('command unknown')` 回覆主人。
+- 更新 `test/unit/commands.test.ts`（或 `test/unit/bt.test.ts`）：驗證一般訊息忽略、合法 `!command` 解析、未知 `!xxx` 回傳 `command unknown`。
+
+### 8.3 實作重點與限制
+- **嚴格前綴匹配**：僅處理以 `!` 開頭的字串（如 `!follow`）；普通聊天（如 `hello bot` 或 `follow me`）直接忽略不視為指令。
+- **未知指令明確回覆**：主人發送如 `!jump`、`!dance` 等未支援的指令時，即刻於聊天室發送 `command unknown`，避免使用者誤以為指令已生效或機器人當機。
+- **權限不變**：仍維持僅允許 Owner 發出的指令生效。
+
+### 8.4 驗收門檻 (Exit Criteria)
+- [ ] 發送 `!follow` 或 `!unfollow` 能正常切換機器人狀態。
+- [ ] 發送未帶 `!` 的文字（如 `follow`），機器人不動作亦不回覆。
+- [ ] 發送未知的 `!foo`，機器人在聊天室回覆 `command unknown`。
+
+---
+
+## Stage 9: 基地座標設定 (`!base` 指令與 Base 狀態管理)
+
+### 9.1 階段目標
+實作基地標記功能，當主人發送 `!base` 時，將主人當前座標（若主人可視）或機器人自身座標記錄為基地點（`world.base`），並在基地更新時標記重生點需重新尋找。
+
+### 9.2 交付檔案清單
+- 更新 `src/blackboard.ts`：`WorldState` 擴充 `base: Position | null`。
+- 更新 `src/commands.ts`：新增 `!base` 指令解析。
+- 更新 `src/bot.ts`：處理 `base` 指令事件，更新黑板 `world.base` 並於聊天室回應 `Base set to (X, Y, Z)`。
+- 單元測試：驗證 `!base` 設定基地座標、聊天回覆與黑板資料結構。
+
+### 9.3 實作重點與限制
+- **座標解析容錯**：優先讀取可視之主人座標 `world.master.position`；若主人不在周圍或為無主人模式，退回使用機器人當前自身座標。
+- **重新尋床聯動旗標**：若基地座標變更，設定 `bedNeedsRefresh = true`，使後續重生點模組能自動感知並更新床鋪。
+
+### 9.4 驗收門檻 (Exit Criteria)
+- [ ] 主人發送 `!base`，黑板 `world.base` 成功更新為主人當前座標。
+- [ ] 機器人於聊天室回覆 `Base set to (X, Y, Z)`。
+
+---
+
+## Stage 10: 綜合狀態回報 (`!state` / `!status` 指令擴充)
+
+### 10.1 階段目標
+擴充狀態查詢指令，主人發送 `!state` 或 `!status` 時，在聊天室以結構化格式回報血量、飢餓度、基地座標、重生點座標、當前意圖模式、正在執行的動作、手持裝備與背包剩餘格數等關鍵數值。
+
+### 10.2 交付檔案清單
+- 更新 `src/commands.ts`：支援 `!state` 與 `!status`。
+- 更新 `src/bot.ts`：在 `onStatus` 回調中整合豐富的狀態資訊。
+- 單元測試：驗證狀態字串格式與數值完整性。
+
+### 10.3 實作重點與限制
+- **資訊豐富性與緊湊度**：避免多行刷頻（Minecraft 聊天室行數有限），以精簡格式輸出（例：`HP=20/20 Food=20 Mode=FOLLOW Base=(X,Y,Z) Spawn=(X,Y,Z) Weapon=iron_sword FreeSlots=24`）。
+
+### 10.4 驗收門檻 (Exit Criteria)
+- [ ] 發送 `!state` 或 `!status`，機器人能在聊天室完整回報上述關鍵數值。
+
+---
+
+## Stage 11: 單次導航前進 (`!come` 指令)
+
+### 11.1 階段目標
+實作單次前往主人當前位置的指令，抵達後立即停下轉為原地待命（`STAY`），不進入持續跟隨。
+
+### 11.2 交付檔案清單
+- 更新 `src/commands.ts`：新增 `!come` 指令解析。
+- 更新 `src/actions/navigation.ts`：實作 `ComeOnce` 單次導航動作適配器（目標為靜態座標點，抵達門檻 2.0 格）。
+- 更新 `src/bot.ts` 與行為樹：註冊 `ComeOnce`，抵達時將意圖模式切換為 `STAY` 並於聊天室回報 `Arrived at your location.`。
+- 單元測試：驗證單次抵達後自動轉入 `STAY`，且不會持續跟隨主人移動。
+
+### 11.3 實作重點與限制
+- **靜態座標導航**：在接收指令當下固化主人座標，不使用動態追隨的 `GoalFollow`，避免主人走動時無限追趕。
+- **可被覆蓋**：若在前進途中收到 `!follow`、`!stop` 或 `!return`，立即被新指令覆蓋。
+
+### 11.4 驗收門檻 (Exit Criteria)
+- [ ] 主人發送 `!come`，機器人前往主人發送指令時的座標。
+- [ ] 抵達後機器人立即停下，模式變更為 `STAY`，不再跟隨主人。
+
+---
+
+## Stage 12: 長期持久任務：返航基地 (`!return` 模式與中斷恢復機制)
+
+### 12.1 階段目標
+實作長期持久的返航任務模式（`mode: 'RETURN'`）。當主人發送 `!return` 時，機器人導航返回基地或登記的重生點。若途中遭遇突發事件（如戰鬥 `Combat` 或殘血逃跑 `Retreat`），在中斷結束後能自動恢復繼續返回基地，直至真正抵達後才切換為 `STAY`。
+
+### 12.2 交付檔案清單
+- 更新 `src/commands.ts`：新增 `!return` 指令解析（`mode: 'RETURN'`）。
+- 更新 `src/actions/navigation.ts`：實作 `ReturnToBase` 導航適配器（導向 `world.base` 或 `world.spawnPoint`）。
+- 更新 `src/bt/subtrees/work.ts`：在行為樹中加入 `ReturnToBase` 子樹，設定於 `mode === 'RETURN'` 時啟動。
+- 單元測試：驗證返航途中的戰鬥搶佔、戰後自動恢復返航，以及抵達後轉入 `STAY`。
+
+### 12.3 實作重點與限制
+- **長程任務持久性**：意圖保持為 `RETURN`，因此途中觸發 `Combat (80)` 或 `Retreat (100)` 僅是暫時搶佔資源；當威脅解除、戰鬥或逃跑結束後，行為樹重新 Tick 時因意圖仍為 `RETURN`，會無縫重新建立目標前往基地。
+- **目的地優先順序**：`world.base` -> `world.spawnPoint`；若兩者皆無，聊天室提示 `No base or spawn point set!` 並恢復原模式。
+- **終止條件**：
+  1. 成功抵達基地（距離 <= 2.0 格），自動切換為 `STAY`，聊天室發送 `Arrived at base.`。
+  2. 被主人新的明確指令覆蓋（如 `!follow`、`!come`、`!unfollow`、`!stop`）。
+
+### 12.4 驗收門檻 (Exit Criteria)
+- [ ] 主人發送 `!return`，機器人開始導航前往基地（或重生點）。
+- [ ] 返航途中生成殭屍，機器人中斷返航進行交戰；擊殺殭屍後自動恢復前往基地。
+- [ ] 返航途中可被 `!come` 或 `!follow` 隨時覆蓋。
+- [ ] 抵達基地後自動切換為 `STAY` 待命。
+
+---
+
+## Stage 13: 自動重生點綁定 (自動尋床設定與逾時保護)
+
+### 13.1 階段目標
+實作自主低優先級（Priority 15）的重生點設定子樹。當無主人時搜尋最近床鋪；有主人且有 base 時，自動在基地周圍搜尋空床設定重生點。具備 30 秒逾時放棄與冷卻機制，並在主人更新 base 時自動觸發重新尋床。
+
+### 13.2 交付檔案清單
+- 更新 `src/blackboard.ts`：`WorldState` 擴充 `spawnPoint: Position | null`。
+- 更新 `src/actions/navigation.ts`：實作 `SetSpawn` 動作適配器（走至床邊並右鍵/啟用床鋪以設置重生點）。
+- 更新 `src/bt/subtrees/work.ts`：加入 `SetSpawn` 守衛與行為節點（Priority 15）。
+- 單元測試：驗證尋床範圍判定、30 秒逾時放棄、base 座標變更時重新尋找。
+
+### 13.3 實作重點與限制
+- **低優先級空閒執行 (Priority 15)**：低於 `Follow (20)`、`Pickup (30)`、`Maintenance (60)`、`Combat (80)`、`Retreat (100)`，僅在無其他緊迫任務時執行。
+- **搜尋範圍邏輯**：
+  - 有主人且已設 `base`：以 `world.base` 為中心半徑 24 格內搜尋未佔用床鋪。
+  - 無主人或無 base：以機器人當前位置為中心搜尋最近床鋪。
+- **防卡死逾時與冷卻 (Fail-safe Timeout & Cooldown)**：
+  - 動作最長執行 30 秒；若超過 30 秒無法抵達或點擊失敗，標記為 FAILURE 並進入 60 秒冷卻，避免反覆卡死在無法通達的床鋪。
+  - 若主人發送 `!base` 更新了基地，立即重置冷卻，允許重新在基地周遭尋找新床鋪。
+
+### 13.4 驗收門檻 (Exit Criteria)
+- [ ] 設定 `!base` 後，機器人在空閒時自動走向基地周圍 24 格內的床鋪並設置重生點。
+- [ ] 設置成功後，`world.spawnPoint` 記錄床鋪座標。
+- [ ] 床鋪被牆壁封死無法抵達時，30 秒內自動放棄並進入冷卻，不阻礙其他任務。
+
+---
+
+## Stage 14: 綜合整合與端到端驗收測試 (Integration & Handoff Harness)
+
+### 14.1 階段目標
 建立自動化與實機整合測試腳本 (`test/integration/handoff-harness.ts`)，針對所有跨狀態搶佔、極端邊界與長時間運行穩定度進行最終驗收。
 
-### 8.2 必測綜合情境清單 (End-to-End Verification Matrix)
+### 14.2 必測綜合情境清單 (End-to-End Verification Matrix)
 
 | 測試編號 | 測試場景描述 | 預期行為與資源鎖轉移軌跡 |
 | :--- | :--- | :--- |
 | **E2E-01** | **Follow + Eat 並行與遇襲搶佔** | `Follow(20) + RoutineEat(60)` 並行 → 刷出殭屍 → 兩者同時被 `Combat(80)` 搶佔 → 停止進食、拔劍殺敵 → 殭屍死後恢復 `Follow(20) + RoutineEat(60)` 把飯吃完。 |
 | **E2E-02** | **Combat → Retreat + EmergencyEat 雙重搶佔** | `Combat(80)` 交戰中 → 瞬間扣血至 4 → `Retreat(100)` 取得 `{MOVE, LOOK}`、`EmergencyEat(90)` 取得 `{HAND, INVENTORY}` → 邊跑邊吃回血至安全距離。 |
-| **E2E-03** | **Pickup 繞路 → 防落隊急追搶佔** | Bot 正在執行 `PickupItem(30)` 走向掉落物 → 主人突然瞬移至 20 格遠 → `CatchUpFollow(40)` 立即中止撿拾，優先追回主人身邊。 |
+| **E2E-03** | **Return 長程任務中遇襲與戰後恢復** | 執行 `!return` 途中遭遇怪物 → `Combat(80)` 搶佔擊殺怪物 → 戰鬥結束後自動無縫恢復返回基地，抵達後切換為 `STAY`。 |
 | **E2E-04** | **死亡與斷線重置 (Session Generation Fencing)** | Bot 在 `Combat` 或 `Eat` 進行到一半時執行 `/kill` → `sessionGeneration` 遞增、所有鎖清空 → 重生後處於乾淨狀態，無殘留報錯或鬼畜移動。 |
 | **E2E-05** | **10Hz 迴圈效能與記憶體監控** | 連續運行 10 分鐘，經歷 20 次以上狀態切換：EventEmitter 監聽器數量無洩漏（無 `MaxListenersExceededWarning`），單輪 Tick 決策耗時 `< 5ms`。 |
 
