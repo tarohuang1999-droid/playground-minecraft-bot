@@ -183,10 +183,39 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
   let lastHealth = bot.health;
   let lastDamageTime = 0;
   const dynamicThreats = new Map<number, DynamicHostileTarget>();
+  let currentBase: Position | null = null;
+  let currentSpawnPoint: Position | null = null;
+  let bedNeedsRefresh = false;
 
   const getNow = () => (options.now ? options.now() : Date.now());
 
   return {
+    setBase(pos: Position) {
+      currentBase = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
+      bedNeedsRefresh = true;
+    },
+
+    getBase(): Position | null {
+      return currentBase ? { ...currentBase } : null;
+    },
+
+    setSpawnPoint(pos: Position) {
+      currentSpawnPoint = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
+      bedNeedsRefresh = false;
+    },
+
+    getSpawnPoint(): Position | null {
+      return currentSpawnPoint ? { ...currentSpawnPoint } : null;
+    },
+
+    isBedRefreshNeeded(): boolean {
+      return bedNeedsRefresh;
+    },
+
+    clearBedRefreshNeeded() {
+      bedNeedsRefresh = false;
+    },
+
     recordAttacker(
       entity: { id: number; username?: string; name?: string },
       config: { durationMs: number; maxHits?: number; isOwner: boolean }
@@ -230,6 +259,8 @@ export function createPerception(bot: PerceptionSource, owner: string, options: 
       lastHealth = bot.health;
       const tookDamageRecently = (now - lastDamageTime) < 2000;
       world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently };
+      world.base = currentBase ? { ...currentBase } : null;
+      world.spawnPoint = currentSpawnPoint ? { ...currentSpawnPoint } : null;
 
       // Prune expired dynamic threats
       for (const [id, threat] of dynamicThreats.entries()) {

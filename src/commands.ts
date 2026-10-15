@@ -3,6 +3,7 @@ import type { IntentState } from './blackboard.ts';
 export type CommandEvent =
   | { type: 'intent'; mode: IntentState['mode'] }
   | { type: 'status' }
+  | { type: 'set_base' }
   | { type: 'unknown'; raw: string };
 
 export function parseCommand(owner: string, username: string, message: string): CommandEvent | null {
@@ -17,6 +18,7 @@ export function parseCommand(owner: string, username: string, message: string): 
     case 'unfollow': return { type: 'intent', mode: 'STAY' };
     case 'status':
     case 'state': return { type: 'status' };
+    case 'base': return { type: 'set_base' };
     default: return { type: 'unknown', raw: clean };
   }
 }

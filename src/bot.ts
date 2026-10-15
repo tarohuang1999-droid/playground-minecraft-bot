@@ -165,6 +165,18 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       return;
     }
 
+    if (event.type === 'set_base') {
+      const currentWorld = perception.sample();
+      const basePos = currentWorld.master.position ?? currentWorld.self.position;
+      perception.setBase(basePos);
+      sample();
+      const msg = `Base set to (${basePos.x.toFixed(1)}, ${basePos.y.toFixed(1)}, ${basePos.z.toFixed(1)})`;
+      logger?.info(`[base] ${msg}`);
+      chat.enqueue(msg);
+      runner.requestUrgentTick();
+      return;
+    }
+
     logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);
     runner.enqueue(event);
     if (event.type === 'intent') chat.enqueue(`Intent=${event.mode}`);

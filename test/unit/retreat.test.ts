@@ -281,6 +281,8 @@ test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allow
       world: {
         self: { position: { x: 0, y: 64, z: 0 }, health: 4, food: 20, isAlive: true, tookDamageRecently: true },
         master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
+        base: null,
+        spawnPoint: null,
         entities: [],
         threats: [{ entityId: 10, name: 'zombie', position: { x: 3, y: 64, z: 0 }, distance: 3 }],
         nearbyDrops: [],

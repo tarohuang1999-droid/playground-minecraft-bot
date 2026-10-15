@@ -179,6 +179,8 @@ test('combat adapter: equips best weapon, chases target, looks and attacks withi
       world: {
         self: { position: { x: 0, y: 64, z: 0 }, health: 20, food: 20, isAlive: true, tookDamageRecently: false },
         master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
+        base: null,
+        spawnPoint: null,
         entities: [],
         threats: [],
         nearbyDrops: [],

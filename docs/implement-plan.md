@@ -222,8 +222,8 @@
 - **重新尋床聯動旗標**：若基地座標變更，設定 `bedNeedsRefresh = true`，使後續重生點模組能自動感知並更新床鋪。
 
 ### 9.4 驗收門檻 (Exit Criteria)
-- [ ] 主人發送 `!base`，黑板 `world.base` 成功更新為主人當前座標。
-- [ ] 機器人於聊天室回覆 `Base set to (X, Y, Z)`。
+- [x] 主人發送 `!base`，黑板 `world.base` 成功更新為主人當前座標。
+- [x] 機器人於聊天室回覆 `Base set to (X, Y, Z)`。
 
 ---
 

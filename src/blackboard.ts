@@ -7,6 +7,8 @@ export interface ObservedEntity { entityId: number; name: string; position: Posi
 export interface WorldState {
   self: { position: Position; health: number; food: number; isAlive: boolean; tookDamageRecently: boolean };
   master: { username: string; entityId: number | null; position: Position | null; distance: number };
+  base: Position | null;
+  spawnPoint: Position | null;
   entities: ObservedEntity[];
   threats: ObservedEntity[];
   nearbyDrops: Array<ObservedEntity & { itemName: string }>;
@@ -38,6 +40,8 @@ export function createWorld(master: string): WorldState {
   return {
     self: { position: { x: 0, y: 0, z: 0 }, health: 20, food: 20, isAlive: false, tookDamageRecently: false },
     master: { username: master, entityId: null, position: null, distance: Infinity },
+    base: null,
+    spawnPoint: null,
     entities: [], threats: [], nearbyDrops: [],
     inventory: { freeSlots: 0, bestFood: null, bestWeapon: null, equippedWeaponDamage: 0, pendingArmorUpgrade: null },
   };
