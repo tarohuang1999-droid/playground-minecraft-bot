@@ -28,6 +28,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   const navigationAdapters = hasPathfinderOrPlugin ? {
     NormalFollow: navigation.normalFollow,
     CatchUpFollow: navigation.catchUpFollow,
+    PickupItem: navigation.pickupItem,
   } : {};
   const executor = createExecutor(createArbiter(), {
     Idle: () => ({ start() {}, cancel() {} }), Chat: chat.adapter, ...navigationAdapters, ...options.adapters,
@@ -44,7 +45,10 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
   });
   let active = false;
   let disposed = false;
-  function sample() { runner.enqueue({ type: 'world', world: perception.sample() }); }
+  function sample() {
+    const runtime = executor.runtime();
+    runner.enqueue({ type: 'world', world: perception.sample(runtime.cooldowns) });
+  }
   function reset() {
     active = false;
     logger?.info('[lifecycle] bot reset/pause');

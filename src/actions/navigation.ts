@@ -3,7 +3,7 @@ import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
 import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
 
-const { GoalFollow } = goals;
+const { GoalFollow, GoalNear } = goals;
 
 export interface NavigationEntity {
   id: number;
@@ -438,8 +438,127 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger) 
     };
   }
 
+  function pickupItemAdapter(): AdapterFactory {
+    return (request: ActionRequest): ActionAdapter => {
+      let startTime = 0;
+      let activeGoal: unknown = null;
+      let targetEntityId: number | null = request.targetId;
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
+      let lastRepathTime = 0;
+      let isJumping = false;
+
+      return {
+        start(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          if (!bot.pathfinder) {
+            logger?.warn('[navigation] cannot pickup: pathfinder is not loaded');
+            return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
+          }
+          startTime = Date.now();
+          lastProgressTime = startTime;
+          lastRepathTime = startTime;
+          targetEntityId = request.targetId;
+          const target = targetEntityId !== null ? bot.entities[targetEntityId] : null;
+          if (!target || !target.position) {
+            logger?.warn('[navigation] pickup target not found: ' + targetEntityId);
+            return { status: 'FAILURE', reason: 'Target item not found' };
+          }
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
+          logger?.info(`[navigation] PickupItem started towards entity ${targetEntityId}`, {
+            itemPos: target.position,
+          });
+          activeGoal = new GoalNear(target.position.x, target.position.y, target.position.z, 0.8);
+          bot.pathfinder.setGoal(activeGoal, false);
+        },
+        update(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          const now = Date.now();
+
+          // 1. Check 4-second timeout
+          if (now - startTime > 4000) {
+            logger?.warn(`[navigation] PickupItem timed out (> 4s) for entity ${targetEntityId}`);
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'FAILURE', reason: 'Pickup timed out after 4000ms' };
+          }
+
+          // 2. Check if item has been picked up (target entity disappeared from bot.entities)
+          const target = targetEntityId !== null ? bot.entities[targetEntityId] : null;
+          if (!target || !target.position) {
+            logger?.info(`[navigation] PickupItem success: entity ${targetEntityId} collected`);
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'SUCCESS' };
+          }
+
+          // 3. Proactive door opening
+          const openedDoor = doorManager.tryOpenDoorInFront(bot, logger);
+          if (openedDoor) {
+            lastProgressTime = now;
+            if (now - lastRepathTime > 500) {
+              lastRepathTime = now;
+              activeGoal = new GoalNear(target.position.x, target.position.y, target.position.z, 0.8);
+              bot.pathfinder?.setGoal(activeGoal, false);
+            }
+          }
+
+          // 4. Climbing ladder
+          if (isClimbingLadder(bot)) {
+            bot.setControlState?.('jump', true);
+            isJumping = true;
+          } else {
+            // 5. Obstacle Jump Check
+            if (shouldJumpObstacle(bot)) {
+              bot.setControlState?.('jump', true);
+              isJumping = true;
+            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+              bot.setControlState?.('jump', false);
+              isJumping = false;
+            }
+          }
+
+          // 6. Obstruction & Stuck Detection
+          const currentPos = bot.entity?.position;
+          if (currentPos && lastPos) {
+            const mdx = currentPos.x - lastPos.x;
+            const mdy = currentPos.y - lastPos.y;
+            const mdz = currentPos.z - lastPos.z;
+            const movedDist = Math.sqrt(mdx * mdx + mdy * mdy + mdz * mdz);
+            if (movedDist >= 0.15) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          } else if (currentPos) {
+            lastPos = { ...currentPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          const progressStalled = (now - lastProgressTime) > 1500;
+          if (progressStalled && !isMoving) {
+            logger?.warn(`[navigation] PickupItem path obstructed or idle for entity ${targetEntityId}`);
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'FAILURE', reason: 'Unreachable item drop' };
+          }
+        },
+        cancel() {
+          logger?.info('[navigation] PickupItem cancelled');
+          activeGoal = null;
+          bot.setControlState?.('jump', false);
+          bot.pathfinder?.setGoal(null);
+          doorManager.reset();
+        },
+      };
+    };
+  }
+
   return {
     normalFollow: followAdapter(THRESHOLDS.followExit, THRESHOLDS.followExit),
     catchUpFollow: followAdapter(THRESHOLDS.catchUpExit, THRESHOLDS.catchUpExit),
+    pickupItem: pickupItemAdapter(),
   };
 }
