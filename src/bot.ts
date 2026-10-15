@@ -154,11 +154,17 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     if (!event) {
       if (username.trim().toLowerCase() !== owner.trim().toLowerCase()) {
         logger?.warn(`[chat] rejected: sender "${username}" does not match owner "${owner}"`);
-      } else {
-        logger?.warn(`[chat] ignored unknown command: "${message}"`);
       }
       return;
     }
+
+    if (event.type === 'unknown') {
+      logger?.warn(`[chat] unknown command "!${event.raw}" from ${username}`);
+      chat.enqueue('command unknown');
+      runner.requestUrgentTick();
+      return;
+    }
+
     logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);
     runner.enqueue(event);
     if (event.type === 'intent') chat.enqueue(`Intent=${event.mode}`);

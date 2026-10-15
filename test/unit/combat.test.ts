@@ -304,7 +304,7 @@ test('integration: Follow preempted by Combat on zombie spawn, auto-resumes Foll
   bot.emit('spawn');
 
   // Command: follow owner (distance is 5 > 2.2, so NormalFollow starts)
-  bot.emit('chat', 'dakaz', 'follow');
+  bot.emit('chat', 'dakaz', '!follow');
   bot.emit('physicsTick'); bot.emit('physicsTick');
   assert.strictEqual(companion.snapshot().intent.mode, 'FOLLOW');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
@@ -416,7 +416,7 @@ test('integration: owner attack unfollows (intent -> STAY) and triggers 1 counte
   bot.emit('spawn');
 
   // Master commands: follow
-  bot.emit('chat', 'dakaz', 'follow');
+  bot.emit('chat', 'dakaz', '!follow');
   bot.emit('physicsTick'); bot.emit('physicsTick');
   assert.strictEqual(companion.snapshot().intent.mode, 'FOLLOW');
 

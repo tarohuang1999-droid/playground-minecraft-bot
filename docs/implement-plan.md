@@ -200,9 +200,9 @@
 - **權限不變**：仍維持僅允許 Owner 發出的指令生效。
 
 ### 8.4 驗收門檻 (Exit Criteria)
-- [ ] 發送 `!follow` 或 `!unfollow` 能正常切換機器人狀態。
-- [ ] 發送未帶 `!` 的文字（如 `follow`），機器人不動作亦不回覆。
-- [ ] 發送未知的 `!foo`，機器人在聊天室回覆 `command unknown`。
+- [x] 發送 `!follow` 或 `!unfollow` 能正常切換機器人狀態。
+- [x] 發送未帶 `!` 的文字（如 `follow`），機器人不動作亦不回覆。
+- [x] 發送未知的 `!foo`，機器人在聊天室回覆 `command unknown`。
 
 ---
 

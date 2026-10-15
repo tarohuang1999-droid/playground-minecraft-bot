@@ -8,9 +8,9 @@ import type { ActionContext, ActionRequest } from '../../src/execution/types.ts'
 import { createBlackboard, createWorld } from '../../src/blackboard.ts';
 
 test('commands: unfollow command sets mode to STAY', () => {
-  assert.deepEqual(parseCommand('owner', 'owner', 'unfollow'), { type: 'intent', mode: 'STAY' });
-  assert.deepEqual(parseCommand('owner', 'owner', ' UNFOLLOW '), { type: 'intent', mode: 'STAY' });
-  assert.equal(parseCommand('owner', 'stranger', 'unfollow'), null);
+  assert.deepEqual(parseCommand('owner', 'owner', '!unfollow'), { type: 'intent', mode: 'STAY' });
+  assert.deepEqual(parseCommand('owner', 'owner', ' !UNFOLLOW '), { type: 'intent', mode: 'STAY' });
+  assert.equal(parseCommand('owner', 'stranger', '!unfollow'), null);
 });
 
 test('navigation adapter: sets dynamic GoalFollow and does not repeat setGoal on update (RULE-07)', () => {
@@ -125,7 +125,7 @@ test('integration: follow command engages navigation, unfollow stops it, hystere
   assert.equal(companion.snapshot().runtime.lockedResources.MOVE, null);
 
   // Command: follow -> distance is 10 (> 5), so NormalFollow starts!
-  bot.emit('chat', 'owner', 'follow');
+  bot.emit('chat', 'owner', '!follow');
   bot.emit('physicsTick'); bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'FOLLOW');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
@@ -143,7 +143,7 @@ test('integration: follow command engages navigation, unfollow stops it, hystere
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /CatchUpFollow/);
 
   // Command: unfollow -> cancels follow, transitions to STAY, frees locks
-  bot.emit('chat', 'owner', 'unfollow');
+  bot.emit('chat', 'owner', '!unfollow');
   bot.emit('physicsTick'); bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'STAY');
   assert.equal(companion.snapshot().runtime.lockedResources.MOVE, null);

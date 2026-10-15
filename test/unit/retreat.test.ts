@@ -222,7 +222,7 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
   bot.emit('spawn');
 
   // Start in FOLLOW mode
-  bot.emit('chat', 'dakaz', 'follow');
+  bot.emit('chat', 'dakaz', '!follow');
   bot.emit('physicsTick'); bot.emit('physicsTick');
 
   // Zombie is detected -> Combat engages

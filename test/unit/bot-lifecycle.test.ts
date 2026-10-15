@@ -19,14 +19,14 @@ test('owner chat changes intent while missing body adapters stay Idle; detach re
   const bot = new FakeBot();
   const companion = attachCompanion(bot, 'owner');
   bot.emit('spawn');
-  bot.emit('chat', 'stranger', 'follow');
+  bot.emit('chat', 'stranger', '!follow');
   bot.emit('physicsTick'); bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'IDLE');
-  bot.emit('chat', 'owner', 'follow');
+  bot.emit('chat', 'owner', '!follow');
   bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'FOLLOW');
   assert.ok(Object.values(companion.snapshot().runtime.activeRuns).some(run => run.actionType === 'Idle'));
-  bot.emit('whisper', 'owner', 'stop'); bot.emit('physicsTick');
+  bot.emit('whisper', 'owner', '!stop'); bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'STAY');
   companion.dispose(); companion.dispose();
   assert.equal(bot.eventNames().length, 0);
@@ -39,7 +39,7 @@ test('death cancels active controls immediately; respawn is clean; end clears lo
   const companion = attachCompanion(bot, 'owner', { adapters: { NormalFollow: () => ({
     start(context) { ctx = context; }, cancel() { cancels++; },
   }) } });
-  bot.emit('spawn'); bot.emit('chat', 'owner', 'follow'); bot.emit('physicsTick');
+  bot.emit('spawn'); bot.emit('chat', 'owner', '!follow'); bot.emit('physicsTick');
   assert.notEqual(companion.snapshot().runtime.lockedResources.MOVE, null);
   assert.equal(ctx.isActive(), true);
   bot.emit('death');

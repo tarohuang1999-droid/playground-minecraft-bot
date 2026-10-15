@@ -9,12 +9,12 @@ import { createArbiter } from '../../src/execution/arbiter.ts';
 import { createExecutor } from '../../src/execution/executor.ts';
 
 test('only configured owner can issue exact supported commands', () => {
-  assert.equal(parseCommand('owner', 'stranger', 'follow'), null);
-  assert.equal(parseCommand('owner', 'owner', 'follow somebody'), null);
+  assert.equal(parseCommand('owner', 'stranger', '!follow'), null);
+  assert.deepEqual(parseCommand('owner', 'owner', '!follow somebody'), { type: 'unknown', raw: 'follow somebody' });
   assert.equal(parseCommand('owner', 'owner', '/kill'), null);
-  assert.deepEqual(parseCommand('owner', 'owner', ' Follow '), { type: 'intent', mode: 'FOLLOW' });
-  assert.deepEqual(parseCommand('owner', 'owner', 'stop'), { type: 'intent', mode: 'STAY' });
-  assert.deepEqual(parseCommand('owner', 'owner', 'status'), { type: 'status' });
+  assert.deepEqual(parseCommand('owner', 'owner', ' !Follow '), { type: 'intent', mode: 'FOLLOW' });
+  assert.deepEqual(parseCommand('owner', 'owner', '!stop'), { type: 'intent', mode: 'STAY' });
+  assert.deepEqual(parseCommand('owner', 'owner', '!status'), { type: 'status' });
 });
 
 test('perception copies plain positions, bounds observations, and handles invisible owner', () => {
