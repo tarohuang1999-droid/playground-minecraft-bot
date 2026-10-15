@@ -429,6 +429,7 @@ export function findSafestEscapePosition(
 
 export interface NavigationCallbacks {
   onComeArrived?: () => void;
+  onReturnArrived?: () => void;
 }
 
 export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, callbacks?: NavigationCallbacks) {
@@ -964,11 +965,141 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     };
   }
 
+  function returnToBaseAdapter(onArrival?: () => void): AdapterFactory {
+    return (request: ActionRequest): ActionAdapter => {
+      let activeGoal: unknown = null;
+      let targetPos: { x: number; y: number; z: number } | null = null;
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
+      let lastRepathTime = 0;
+      let isJumping = false;
+
+      return {
+        start(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          if (!bot.pathfinder) {
+            logger?.warn('[navigation] cannot return to base: pathfinder is not loaded');
+            return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
+          }
+          const snapshot = ctx.getSnapshot();
+          const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
+            ? { x: request.params.x, y: request.params.y, z: request.params.z }
+            : (snapshot.world.base ?? snapshot.world.spawnPoint);
+          if (!target) {
+            logger?.warn('[navigation] ReturnToBase destination is missing');
+            bot.pathfinder.setGoal(null);
+            return { status: 'FAILURE', reason: 'Destination missing' };
+          }
+          targetPos = { x: target.x, y: target.y, z: target.z };
+          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
+          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          if (dist <= 2.0) {
+            logger?.info('[navigation] ReturnToBase already within 2.0 blocks of destination');
+            onArrival?.();
+            return { status: 'SUCCESS' };
+          }
+
+          logger?.info(`[navigation] ReturnToBase started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+          const now = Date.now();
+          lastProgressTime = now;
+          lastRepathTime = now;
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
+          activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
+          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
+          if ((bot.pathfinder as any)?.movements) {
+            (bot.pathfinder as any).movements.canDig = !handLocked;
+          }
+          bot.pathfinder.setGoal(activeGoal, false);
+        },
+
+        update(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          const snapshot = ctx.getSnapshot();
+          const handLocked = snapshot.runtime.lockedResources.HAND !== null;
+          if ((bot.pathfinder as any)?.movements) {
+            (bot.pathfinder as any).movements.canDig = !handLocked;
+          }
+
+          if (!targetPos) {
+            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : (snapshot.world.base ?? snapshot.world.spawnPoint);
+            if (target) targetPos = { x: target.x, y: target.y, z: target.z };
+            else return { status: 'FAILURE', reason: 'Destination missing' };
+          }
+
+          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
+          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          if (dist <= 2.0) {
+            logger?.info('[navigation] ReturnToBase arrived at destination');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            onArrival?.();
+            return { status: 'SUCCESS' };
+          }
+
+          const now = Date.now();
+          doorManager.tryOpenDoorInFront(bot, logger);
+
+          if (isClimbingLadder(bot)) {
+            const dy = targetPos.y - currentPos.y;
+            bot.setControlState?.('jump', dy > 0.3);
+            isJumping = dy > 0.3;
+          } else {
+            if (shouldJumpObstacle(bot)) {
+              bot.setControlState?.('jump', true);
+              isJumping = true;
+            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+              bot.setControlState?.('jump', false);
+              isJumping = false;
+            }
+          }
+
+          if (currentPos && lastPos) {
+            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            if (mdist >= 0.15) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          } else if (currentPos) {
+            lastPos = { ...currentPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          const progressStalled = (now - lastProgressTime) > 1200;
+          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 600;
+
+          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1200) {
+            logger?.info('[navigation] ReturnToBase path obstructed or idle, recalculating...', { dist });
+            lastRepathTime = now;
+            lastProgressTime = now;
+            if (currentPos) lastPos = { ...currentPos };
+            activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
+            bot.pathfinder?.setGoal(activeGoal, false);
+          }
+        },
+
+        cancel() {
+          logger?.info('[navigation] ReturnToBase cancelled');
+          activeGoal = null;
+          targetPos = null;
+          bot.setControlState?.('jump', false);
+          bot.pathfinder?.setGoal(null);
+          doorManager.reset();
+        },
+      };
+    };
+  }
+
   return {
     normalFollow: followAdapter(THRESHOLDS.followExit, THRESHOLDS.followExit),
     catchUpFollow: followAdapter(THRESHOLDS.catchUpExit, THRESHOLDS.catchUpExit),
     pickupItem: pickupItemAdapter(),
     retreat: retreatAdapter(),
     comeOnce: comeOnceAdapter(callbacks?.onComeArrived),
+    returnToBase: returnToBaseAdapter(callbacks?.onReturnArrived),
   };
 }

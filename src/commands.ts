@@ -21,6 +21,7 @@ export function parseCommand(owner: string, username: string, message: string): 
     case 'state': return { type: 'status' };
     case 'base': return { type: 'set_base' };
     case 'come': return { type: 'come' };
+    case 'return': return { type: 'intent', mode: 'RETURN' };
     default: return { type: 'unknown', raw: clean };
   }
 }

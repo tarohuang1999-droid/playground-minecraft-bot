@@ -51,10 +51,26 @@ export function workSubtree(available: ReadonlySet<string>) {
     }),
     { exit: s => !available.has('ComeOnce') || !canCome(s) });
 
+  const canReturn = (s: BlackboardSnapshot) =>
+    s.world.self.isAlive && s.intent.mode === 'RETURN' && (s.world.base !== null || s.world.spawnPoint !== null);
+
+  const returnToBase = guard('ReturnToBase-ready',
+    s => available.has('ReturnToBase') && canReturn(s),
+    action('ReturnToBase', s => {
+      const dest = s.world.base ?? s.world.spawnPoint!;
+      return {
+        actionType: 'ReturnToBase',
+        targetId: null,
+        params: { x: dest.x, y: dest.y, z: dest.z },
+      };
+    }),
+    { exit: s => !available.has('ReturnToBase') || !canReturn(s) });
+
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
     comeOnce,
+    returnToBase,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
   ]);
 }

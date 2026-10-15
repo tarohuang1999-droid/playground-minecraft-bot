@@ -33,7 +33,11 @@ test('commands parser: ignores plain text and non-owner, parses ! commands', () 
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!come'), { type: 'come' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !COME  '), { type: 'come' });
 
-  // 7. Unknown '!' command returns unknown type with raw name
+  // 7. !return command
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!return'), { type: 'intent', mode: 'RETURN' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !RETURN  '), { type: 'intent', mode: 'RETURN' });
+
+  // 8. Unknown '!' command returns unknown type with raw name
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!foo'), { type: 'unknown', raw: 'foo' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dance_now'), { type: 'unknown', raw: 'dance_now' });
 });
@@ -233,6 +237,116 @@ test('commands integration: !come without visible master replies "Cannot see you
 
   assert.ok(bot.sent.includes('Cannot see you!'));
   assert.notStrictEqual(companion.snapshot().intent.mode, 'COME');
+
+  companion.dispose();
+});
+
+test('commands integration: !return without base or spawn point replies "No base or spawn point set!"', () => {
+  class NoBaseReturnBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {};
+    entities: Record<string, any> = {};
+    inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
+    sent: string[] = [];
+    chat(message: string) { this.sent.push(message); }
+  }
+
+  const bot = new NoBaseReturnBot();
+  const companion = attachCompanion(bot as any, 'dakaz');
+  bot.emit('spawn');
+
+  // Master sends !return before any base or bed is set
+  bot.emit('chat', 'dakaz', '!return');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  assert.ok(bot.sent.includes('No base or spawn point set!'));
+  assert.notStrictEqual(companion.snapshot().intent.mode, 'RETURN');
+
+  companion.dispose();
+});
+
+test('commands integration: !return navigates to base, resumes after combat preemption, and arrives at base', async () => {
+  let simulatedTime = 1000;
+  class ReturnTestBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {};
+    entities: Record<number, any> = {};
+    inventory = { emptySlotCount: () => 36, items: () => [{ type: 100, name: 'iron_sword', id: 100 }], slots: [] };
+    heldItem: any = { name: 'iron_sword' };
+    sent: string[] = [];
+    goalsSet: any[] = [];
+    attacks: any[] = [];
+    pathfinder = {
+      setGoal: (goal: any) => { this.goalsSet.push(goal); },
+      isMoving: () => false,
+    };
+    attack = (target: any) => { this.attacks.push(target); };
+    equip = async () => {};
+    lookAt = async () => {};
+    chat(message: string) { this.sent.push(message); }
+  }
+
+  const bot = new ReturnTestBot();
+  const ownerEntity = { id: 2, position: { x: 50, y: 64, z: 50 }, username: 'dakaz' };
+  bot.entities[2] = ownerEntity;
+  bot.players.dakaz = { entity: ownerEntity, username: 'dakaz' };
+
+  const companion = attachCompanion(bot as any, 'dakaz', { now: () => simulatedTime });
+  bot.emit('spawn');
+
+  // 1. Set base at (50, 64, 50)
+  bot.emit('chat', 'dakaz', '!base');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  assert.deepStrictEqual(companion.snapshot().world.base, { x: 50, y: 64, z: 50 });
+
+  // 2. Master issues !return
+  simulatedTime += 2000;
+  bot.emit('chat', 'dakaz', '!return');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  assert.strictEqual(companion.snapshot().intent.mode, 'RETURN');
+  assert.ok(bot.sent.includes('Intent=RETURN'));
+  assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /ReturnToBase/);
+
+  // 3. Combat preempts ReturnToBase: A hostile zombie spawns nearby (dist = 5 blocks)
+  const zombie = { id: 99, name: 'zombie', position: { x: 5, y: 64, z: 0 }, isValid: true, health: 20 };
+  bot.entities[99] = zombie;
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  // Combat (80) preempts ReturnToBase (25)
+  assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
+  assert.match(companion.snapshot().runtime.lockedResources.HAND ?? '', /Combat/);
+  // Intent remains RETURN (persistent mission)
+  assert.strictEqual(companion.snapshot().intent.mode, 'RETURN');
+
+  // 4. Zombie dies -> Combat ends, bot automatically resumes ReturnToBase
+  delete bot.entities[99];
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /ReturnToBase/);
+  assert.strictEqual(companion.snapshot().intent.mode, 'RETURN');
+
+  // 5. Bot arrives at base (distance <= 2.0 blocks)
+  simulatedTime += 2000;
+  bot.entity.position = { x: 50.5, y: 64, z: 49.8 };
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  // Intent switches to STAY upon arrival at base, notifies in chat
+  assert.strictEqual(companion.snapshot().intent.mode, 'STAY');
+  assert.ok(bot.sent.includes('Arrived at base.'));
 
   companion.dispose();
 });

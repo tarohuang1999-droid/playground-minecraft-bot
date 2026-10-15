@@ -32,6 +32,12 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       chat.enqueue('Arrived at your location.');
       runner.requestUrgentTick();
     },
+    onReturnArrived: () => {
+      logger?.info('[navigation] ReturnToBase arrived at base, switching intent to STAY');
+      runner.enqueue({ type: 'intent', mode: 'STAY' });
+      chat.enqueue('Arrived at base.');
+      runner.requestUrgentTick();
+    },
   });
   const inventory = createInventoryAdapters(bot as any, logger);
   const combat = createCombatAdapter(bot as any, logger, {
@@ -53,6 +59,7 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
     PickupItem: navigation.pickupItem,
     Retreat: navigation.retreat,
     ComeOnce: navigation.comeOnce,
+    ReturnToBase: navigation.returnToBase,
   } : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,
@@ -206,6 +213,17 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
       chat.enqueue('Intent=COME');
       runner.requestUrgentTick();
       return;
+    }
+
+    if (event.type === 'intent' && event.mode === 'RETURN') {
+      const currentWorld = perception.sample();
+      const dest = currentWorld.base ?? currentWorld.spawnPoint;
+      if (!dest) {
+        logger?.warn('[chat] !return rejected: no base or spawn point set');
+        chat.enqueue('No base or spawn point set!');
+        runner.requestUrgentTick();
+        return;
+      }
     }
 
     logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);
