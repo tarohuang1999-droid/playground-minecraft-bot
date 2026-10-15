@@ -194,7 +194,7 @@ test('combat adapter: equips best weapon, chases target, looks and attacks withi
           pendingArmorUpgrade: null,
         },
       },
-      intent: { mode: 'FOLLOW', updatedAt: 0, intentRevision: 1 },
+      intent: { mode: 'FOLLOW', canDig: false, allowBridge: false, missionId: 'm1', updatedAt: 0, intentRevision: 1 },
       runtime: { activeRuns: {}, results: {}, cooldowns: {}, lockedResources: {} as any },
       revision: 1,
       observedAt: Date.now(),

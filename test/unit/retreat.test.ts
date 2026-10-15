@@ -290,7 +290,7 @@ test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allow
         nearbyDrops: [],
         inventory: { freeSlots: 10, bestFood: null, bestWeapon: null, equippedWeaponDamage: 0, pendingArmorUpgrade: null },
       },
-      intent: { mode: 'FOLLOW', updatedAt: 0, intentRevision: 1 },
+      intent: { mode: 'FOLLOW', canDig: false, allowBridge: false, missionId: 'm1', updatedAt: 0, intentRevision: 1 },
       runtime: { activeRuns: {}, results: {}, cooldowns: {}, lockedResources: {} as any },
       revision: 1,
       observedAt: Date.now(),

@@ -443,3 +443,80 @@ test('navigation adapter: safeBlockAt and DoorManager require Vec3 with floored 
   assert.deepEqual(activatedPosition, { x: 5, y: 64, z: 10 });
 });
 
+test('navigation mission quota and capability switches: quota preserved within mission, reset on new mission', async () => {
+  const fakeBot: any = {
+    entity: { position: { x: 0, y: 64, z: 0 } },
+    pathfinder: {
+      setGoal() {},
+      movements: { canDig: false, scafoldingBlocks: [] },
+      setMovements(m: any) { this.movements = m; },
+    },
+    registry: {
+      itemsByName: { dirt: { id: 1 } },
+      blocksByName: {},
+    },
+    entities: { 10: { id: 10, position: { x: 0, y: 64, z: 10 } } },
+    players: { owner: { entity: { id: 10, position: { x: 0, y: 64, z: 10 } } } },
+  };
+
+  const nav = createNavigation(fakeBot);
+  const board = createBlackboard('owner');
+  const world = createWorld('owner');
+  world.master = { username: 'owner', entityId: 10, position: { x: 0, y: 64, z: 10 }, distance: 10 };
+  board.setWorld(world);
+
+  // Run 1 in Mission 1: canDig=true, allowBridge=true
+  const req1: ActionRequest = {
+    nodeId: 'NormalFollow', runId: 'run-1', actionType: 'NormalFollow',
+    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { canDig: true, allowBridge: true, missionId: 'mission-1' },
+  };
+  const ctx1: ActionContext = {
+    request: req1, token: 1, generation: 0, signal: new AbortController().signal,
+    isActive: () => true, getSnapshot: () => board.snapshot(0),
+  };
+  const adapter1 = nav.normalFollow(req1);
+  adapter1.start(ctx1);
+
+  // Simulate spending 1 quota via bot.dig
+  await fakeBot.dig({ name: 'dirt' });
+  assert.equal(nav.boundary.getDigQuota(), 2);
+
+  adapter1.cancel?.();
+
+  // Run 2 in same Mission 1 (e.g. CatchUpFollow transition or resuming after eating)
+  const req2: ActionRequest = {
+    nodeId: 'CatchUpFollow', runId: 'run-2', actionType: 'CatchUpFollow',
+    targetId: 10, priority: 40, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { canDig: true, allowBridge: true, missionId: 'mission-1' },
+  };
+  const ctx2: ActionContext = {
+    request: req2, token: 2, generation: 0, signal: new AbortController().signal,
+    isActive: () => true, getSnapshot: () => board.snapshot(0),
+  };
+  const adapter2 = nav.catchUpFollow(req2);
+  adapter2.start(ctx2);
+
+  // Quota must be preserved (2 remaining, not reset to 3)
+  assert.equal(nav.boundary.getDigQuota(), 2);
+  adapter2.cancel?.();
+
+  // Run 3 in a NEW Mission 2 (e.g. owner issued !come or fresh !follow)
+  const req3: ActionRequest = {
+    nodeId: 'NormalFollow', runId: 'run-3', actionType: 'NormalFollow',
+    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { canDig: true, allowBridge: true, missionId: 'mission-2' },
+  };
+  const ctx3: ActionContext = {
+    request: req3, token: 3, generation: 0, signal: new AbortController().signal,
+    isActive: () => true, getSnapshot: () => board.snapshot(0),
+  };
+  const adapter3 = nav.normalFollow(req3);
+  adapter3.start(ctx3);
+
+  // New mission must receive fresh quota of 3
+  assert.equal(nav.boundary.getDigQuota(), 3);
+  adapter3.cancel?.();
+});
+
+

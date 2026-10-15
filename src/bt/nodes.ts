@@ -1,5 +1,5 @@
 import type { BlackboardSnapshot } from '../blackboard.ts';
-import { ACTION_POLICY, type ActionType } from '../policy.ts';
+import { ACTION_POLICY, type ActionType, type ResourceChannel } from '../policy.ts';
 import type { ActionRequest, NodeStatus } from '../execution/types.ts';
 
 export interface TickResult { status: NodeStatus; requests: ActionRequest[] }
@@ -17,13 +17,16 @@ function state(ctx: BtContext, id: string): NodeState {
   return value;
 }
 export function action(id: string, describe: (snapshot: BlackboardSnapshot) => {
-  actionType: ActionType; targetId: number | null; params: ActionRequest['params'];
+  actionType: ActionType;
+  targetId: number | null;
+  params: ActionRequest['params'];
+  requiredResources?: readonly ResourceChannel[];
 }): BtNode {
   return {
     id,
     tick(ctx) {
       const spec = describe(ctx.snapshot);
-      const signature = JSON.stringify([spec.actionType, spec.targetId, spec.params]);
+      const signature = JSON.stringify([spec.actionType, spec.targetId, spec.params, spec.requiredResources]);
       const current = state(ctx, id);
       if (signature !== current.signature) {
         current.runId = ctx.nextRunId(id);
@@ -32,7 +35,16 @@ export function action(id: string, describe: (snapshot: BlackboardSnapshot) => {
       const runId = current.runId!;
       const outcome = ctx.snapshot.runtime.results[runId];
       if (outcome) { ctx.states.delete(id); return result(outcome.status); }
-      return result('RUNNING', [{ nodeId: id, runId, ...spec, ...ACTION_POLICY[spec.actionType] }]);
+      const policy = ACTION_POLICY[spec.actionType];
+      return result('RUNNING', [{
+        nodeId: id,
+        runId,
+        actionType: spec.actionType,
+        targetId: spec.targetId,
+        params: spec.params,
+        priority: policy.priority,
+        requiredResources: spec.requiredResources ?? policy.requiredResources,
+      }]);
     },
     halt(ctx) { ctx.states.delete(id); },
   };

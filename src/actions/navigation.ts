@@ -203,6 +203,10 @@ export class DoorManager {
     return false;
   }
 
+  isInFlight(): boolean {
+    return this.inFlight;
+  }
+
   reset() {
     this.inFlight = false;
   }
@@ -489,6 +493,35 @@ export interface NavigationCallbacks {
 
 export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, callbacks?: NavigationCallbacks) {
   const doorManager = new DoorManager();
+  const boundary = new NavigationExecutionBoundary();
+  boundary.install(bot);
+  let currentTaskState: NavigationTaskState | null = null;
+
+  function attachTaskContext(request: ActionRequest, ctx: ActionContext): NavigationRunContext {
+    const canDig = Boolean(request.params.canDig);
+    const allowBridge = Boolean(request.params.allowBridge);
+    const missionId = String(request.params.missionId || '');
+
+    setupMovements(bot, logger, { canDig, allowBridge });
+
+    if (!currentTaskState || currentTaskState.missionId !== missionId) {
+      currentTaskState = createNavigationTaskState(missionId, canDig, allowBridge);
+    } else {
+      currentTaskState.canDig = canDig;
+      currentTaskState.allowBridge = allowBridge;
+    }
+
+    const runCtx: NavigationRunContext = {
+      token: ctx.token,
+      generation: ctx.generation,
+      canDig,
+      allowBridge,
+      taskState: currentTaskState,
+      isActive: () => ctx.isActive(),
+    };
+    boundary.setActiveContext(runCtx);
+    return runCtx;
+  }
 
   function followAdapter(range: number, exitDistance: number): AdapterFactory {
     return (request: ActionRequest): ActionAdapter => {
@@ -512,6 +545,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             bot.pathfinder.setGoal(null);
             return { status: 'FAILURE', reason: 'Target not visible' };
           }
+          attachTaskContext(request, ctx);
           logger?.info(`[navigation] GoalFollow started towards ${snapshot.world.master.username}`, {
             range,
             distance: snapshot.world.master.distance,
@@ -622,9 +656,16 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
         cancel() {
           logger?.info('[navigation] GoalFollow cancelled');
           activeGoal = null;
+          boundary.setActiveContext(null);
+          if (typeof (bot as any).stopDigging === 'function') {
+            try { (bot as any).stopDigging(); } catch {}
+          }
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
+        },
+        isStopped(): boolean {
+          return !boundary.isInFlight() && !doorManager.isInFlight();
         },
       };
     };
@@ -659,6 +700,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           if (bot.entity?.position) {
             lastPos = { ...bot.entity.position };
           }
+          setupMovements(bot, logger, { canDig: false, allowBridge: false });
+          boundary.setActiveContext(null);
           logger?.info(`[navigation] PickupItem started towards entity ${targetEntityId}`, {
             itemPos: target.position,
           });
@@ -740,9 +783,13 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
         cancel() {
           logger?.info('[navigation] PickupItem cancelled');
           activeGoal = null;
+          boundary.setActiveContext(null);
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
+        },
+        isStopped(): boolean {
+          return !doorManager.isInFlight();
         },
       };
     };
@@ -781,9 +828,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           lastAngle = Math.atan2(targetPos.z - origin.z, targetPos.x - origin.x);
           logger?.info(`[navigation] Retreat started towards safest position (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
 
-          if ((bot.pathfinder as any)?.movements) {
-            (bot.pathfinder as any).movements.canDig = false;
-          }
+          setupMovements(bot, logger, { canDig: false, allowBridge: false });
+          boundary.setActiveContext(null);
 
           activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
           bot.pathfinder.setGoal(activeGoal); // Static goal, dynamic must be false
@@ -875,9 +921,13 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           logger?.info('[navigation] Retreat cancelled');
           activeGoal = null;
           targetPos = null;
+          boundary.setActiveContext(null);
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
+        },
+        isStopped(): boolean {
+          return !doorManager.isInFlight();
         },
       };
     };
@@ -917,6 +967,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'SUCCESS' };
           }
 
+          attachTaskContext(request, ctx);
           logger?.info(`[navigation] ComeOnce started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
           const now = Date.now();
           lastProgressTime = now;
@@ -996,9 +1047,16 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           logger?.info('[navigation] ComeOnce cancelled');
           activeGoal = null;
           targetPos = null;
+          boundary.setActiveContext(null);
+          if (typeof (bot as any).stopDigging === 'function') {
+            try { (bot as any).stopDigging(); } catch {}
+          }
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
+        },
+        isStopped(): boolean {
+          return !boundary.isInFlight() && !doorManager.isInFlight();
         },
       };
     };
@@ -1038,6 +1096,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'SUCCESS' };
           }
 
+          attachTaskContext(request, ctx);
           logger?.info(`[navigation] ReturnToBase started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
           const now = Date.now();
           lastProgressTime = now;
@@ -1117,9 +1176,16 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           logger?.info('[navigation] ReturnToBase cancelled');
           activeGoal = null;
           targetPos = null;
+          boundary.setActiveContext(null);
+          if (typeof (bot as any).stopDigging === 'function') {
+            try { (bot as any).stopDigging(); } catch {}
+          }
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
+        },
+        isStopped(): boolean {
+          return !boundary.isInFlight() && !doorManager.isInFlight();
         },
       };
     };
@@ -1158,6 +1224,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           if (bot.entity?.position) {
             lastPos = { ...bot.entity.position };
           }
+          setupMovements(bot, logger, { canDig: false, allowBridge: false });
+          boundary.setActiveContext(null);
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
           const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
@@ -1262,9 +1330,13 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           logger?.info('[navigation] SetSpawn cancelled');
           activeGoal = null;
           targetPos = null;
+          boundary.setActiveContext(null);
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
+        },
+        isStopped(): boolean {
+          return !doorManager.isInFlight();
         },
       };
     };
@@ -1278,5 +1350,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     comeOnce: comeOnceAdapter(callbacks?.onComeArrived),
     returnToBase: returnToBaseAdapter(callbacks?.onReturnArrived),
     setSpawn: setSpawnAdapter(callbacks?.onSpawnSet, callbacks?.onSpawnFailed),
+    getTaskState: () => currentTaskState,
+    boundary,
   };
 }

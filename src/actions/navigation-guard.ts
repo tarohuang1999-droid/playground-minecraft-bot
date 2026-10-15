@@ -135,6 +135,14 @@ export class NavigationExecutionBoundary {
     return this.activeContext;
   }
 
+  getDigQuota(): number {
+    return this.activeContext?.taskState.digQuota ?? 0;
+  }
+
+  getPlaceQuota(): number {
+    return this.activeContext?.taskState.placeQuota ?? 0;
+  }
+
   isInFlight(): boolean {
     return this.inFlightDigs > 0 || this.inFlightPlaces > 0;
   }

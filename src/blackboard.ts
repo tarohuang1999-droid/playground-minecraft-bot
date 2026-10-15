@@ -25,6 +25,9 @@ export interface WorldState {
 export interface IntentState {
   mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN';
   targetPosition?: Position | null;
+  canDig: boolean;
+  allowBridge: boolean;
+  missionId: string;
   updatedAt: number;
   intentRevision: number;
 }
@@ -66,18 +69,67 @@ function freezeDeep<T>(value: T): DeepReadonly<T> {
   return value as DeepReadonly<T>;
 }
 export function createBlackboard(master: string) {
+  let missionCounter = 0;
+  function nextMissionId(mode: string): string {
+    return `${mode}-${++missionCounter}`;
+  }
+
   let state: BoardState = {
     revision: 0, observedAt: 0, generation: 0, world: createWorld(master),
-    intent: { mode: 'IDLE', targetPosition: null, updatedAt: 0, intentRevision: 0 }, runtime: emptyRuntime(),
+    intent: {
+      mode: 'IDLE',
+      targetPosition: null,
+      canDig: false,
+      allowBridge: false,
+      missionId: nextMissionId('IDLE'),
+      updatedAt: 0,
+      intentRevision: 0,
+    },
+    runtime: emptyRuntime(),
   };
   return {
     setWorld(world: WorldState) { state.world = structuredClone(world); },
     setIntent(mode: IntentState['mode'], now: number, targetPosition?: Position | null) {
-      state.intent = { mode, targetPosition: targetPosition ?? null, updatedAt: now, intentRevision: state.intent.intentRevision + 1 };
+      state.intent = {
+        ...state.intent,
+        mode,
+        targetPosition: targetPosition ?? null,
+        missionId: nextMissionId(mode),
+        updatedAt: now,
+        intentRevision: state.intent.intentRevision + 1,
+      };
+    },
+    setDig(canDig: boolean, now: number) {
+      if (state.intent.canDig === canDig) return;
+      state.intent = {
+        ...state.intent,
+        canDig,
+        updatedAt: now,
+        intentRevision: state.intent.intentRevision + 1,
+      };
+    },
+    setBridge(allowBridge: boolean, now: number) {
+      if (state.intent.allowBridge === allowBridge) return;
+      state.intent = {
+        ...state.intent,
+        allowBridge,
+        updatedAt: now,
+        intentRevision: state.intent.intentRevision + 1,
+      };
     },
     setRuntime(runtime: RuntimeState) { state.runtime = structuredClone(runtime); },
     reset(generation: number) {
-      state = { ...state, generation, world: createWorld(master), runtime: emptyRuntime() };
+      state = {
+        ...state,
+        generation,
+        world: createWorld(master),
+        intent: {
+          ...state.intent,
+          canDig: false,
+          allowBridge: false,
+        },
+        runtime: emptyRuntime(),
+      };
     },
     snapshot(now: number): BlackboardSnapshot {
       state.revision++;

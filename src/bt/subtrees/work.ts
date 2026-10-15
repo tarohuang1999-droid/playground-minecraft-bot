@@ -1,14 +1,30 @@
 import type { BlackboardSnapshot } from '../../blackboard.ts';
-import { THRESHOLDS } from '../../policy.ts';
+import { THRESHOLDS, type ResourceChannel } from '../../policy.ts';
 import { action, guard, reactiveSelector } from '../nodes.ts';
 
 export function workSubtree(available: ReadonlySet<string>) {
+  const getNavResources = (s: BlackboardSnapshot): readonly ResourceChannel[] => {
+    if (s.intent.canDig || s.intent.allowBridge) {
+      return ['MOVE', 'LOOK', 'HAND', 'INVENTORY'];
+    }
+    return ['MOVE', 'LOOK'];
+  };
+
   const canFollow = (s: BlackboardSnapshot) =>
     s.world.self.isAlive && s.intent.mode === 'FOLLOW' && s.world.master.entityId !== null;
 
   const follow = (type: 'CatchUpFollow' | 'NormalFollow', enter: number, exit: number) =>
     guard(`${type}-ready`, s => available.has(type) && canFollow(s) && s.world.master.distance > enter,
-      action(type, s => ({ actionType: type, targetId: s.world.master.entityId, params: {} })),
+      action(type, s => ({
+        actionType: type,
+        targetId: s.world.master.entityId,
+        params: {
+          canDig: s.intent.canDig,
+          allowBridge: s.intent.allowBridge,
+          missionId: s.intent.missionId,
+        },
+        requiredResources: getNavResources(s),
+      })),
       { exit: s => !available.has(type) || !canFollow(s) || s.world.master.distance <= exit });
 
   const getBestPickupTarget = (s: BlackboardSnapshot) => {
@@ -46,7 +62,15 @@ export function workSubtree(available: ReadonlySet<string>) {
       return {
         actionType: 'ComeOnce',
         targetId: null,
-        params: { x: pos.x, y: pos.y, z: pos.z },
+        params: {
+          x: pos.x,
+          y: pos.y,
+          z: pos.z,
+          canDig: s.intent.canDig,
+          allowBridge: s.intent.allowBridge,
+          missionId: s.intent.missionId,
+        },
+        requiredResources: getNavResources(s),
       };
     }),
     { exit: s => !available.has('ComeOnce') || !canCome(s) });
@@ -61,7 +85,15 @@ export function workSubtree(available: ReadonlySet<string>) {
       return {
         actionType: 'ReturnToBase',
         targetId: null,
-        params: { x: dest.x, y: dest.y, z: dest.z },
+        params: {
+          x: dest.x,
+          y: dest.y,
+          z: dest.z,
+          canDig: s.intent.canDig,
+          allowBridge: s.intent.allowBridge,
+          missionId: s.intent.missionId,
+        },
+        requiredResources: getNavResources(s),
       };
     }),
     { exit: s => !available.has('ReturnToBase') || !canReturn(s) });

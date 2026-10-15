@@ -37,7 +37,19 @@ test('commands parser: ignores plain text and non-owner, parses ! commands', () 
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!return'), { type: 'intent', mode: 'RETURN' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !RETURN  '), { type: 'intent', mode: 'RETURN' });
 
-  // 8. Unknown '!' command returns unknown type with raw name
+  // 8. !dig and !bridge commands
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig on'), { type: 'set_dig', enabled: true });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig off'), { type: 'set_dig', enabled: false });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge on'), { type: 'set_bridge', enabled: true });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge off'), { type: 'set_bridge', enabled: false });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig maybe'), { type: 'command_usage', message: 'Usage: !dig on|off' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig'), { type: 'command_usage', message: 'Usage: !dig on|off' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge fast'), { type: 'command_usage', message: 'Usage: !bridge on|off' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge'), { type: 'command_usage', message: 'Usage: !bridge on|off' });
+  assert.strictEqual(parseCommand('dakaz', 'stranger', '!dig on'), null);
+  assert.strictEqual(parseCommand('dakaz', 'stranger', '!bridge on'), null);
+
+  // 9. Unknown '!' command returns unknown type with raw name
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!foo'), { type: 'unknown', raw: 'foo' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dance_now'), { type: 'unknown', raw: 'dance_now' });
 });
@@ -352,6 +364,84 @@ test('commands integration: !return navigates to base, resumes after combat pree
   // Intent switches to STAY upon arrival at base, notifies in chat
   assert.strictEqual(companion.snapshot().intent.mode, 'STAY');
   assert.ok(bot.sent.includes('Arrived at base.'));
+
+  companion.dispose();
+});
+
+test('commands integration: !dig and !bridge toggle switches independently, output usage on invalid args, and status shows states', () => {
+  let simulatedTime = 1000;
+  class TestBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {};
+    entities: Record<string, any> = {};
+    inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
+    sent: string[] = [];
+    chat(message: string) { this.sent.push(message); }
+  }
+
+  const bot = new TestBot();
+  const companion = attachCompanion(bot as any, 'dakaz', { now: () => simulatedTime });
+  bot.emit('spawn');
+
+  function tick() {
+    bot.emit('physicsTick');
+    bot.emit('physicsTick');
+  }
+
+  // 1. Initial status shows Dig=off Bridge=off
+  simulatedTime += 1000;
+  bot.emit('chat', 'dakaz', '!status');
+  tick();
+  assert.ok(bot.sent.some(m => m.includes('Dig=off Bridge=off')));
+
+  // 2. Stranger cannot toggle switches
+  simulatedTime += 1000;
+  bot.emit('chat', 'stranger', '!dig on');
+  tick();
+  assert.strictEqual(companion.snapshot().intent.canDig, false);
+
+  // 3. Invalid arguments output usage without changing state
+  simulatedTime += 1000;
+  bot.emit('chat', 'dakaz', '!dig maybe');
+  tick();
+  assert.ok(bot.sent.includes('Usage: !dig on|off'));
+  assert.strictEqual(companion.snapshot().intent.canDig, false);
+
+  simulatedTime += 1000;
+  bot.emit('chat', 'dakaz', '!bridge fast');
+  tick();
+  assert.ok(bot.sent.includes('Usage: !bridge on|off'));
+  assert.strictEqual(companion.snapshot().intent.allowBridge, false);
+
+  // 4. Toggle dig on
+  simulatedTime += 1000;
+  bot.emit('chat', 'dakaz', '!dig on');
+  tick();
+  assert.ok(bot.sent.includes('Dig=on'));
+  assert.strictEqual(companion.snapshot().intent.canDig, true);
+  assert.strictEqual(companion.snapshot().intent.allowBridge, false);
+
+  // 5. Toggle bridge on independently
+  simulatedTime += 1000;
+  bot.emit('chat', 'dakaz', '!bridge on');
+  tick();
+  assert.ok(bot.sent.includes('Bridge=on'));
+  assert.strictEqual(companion.snapshot().intent.canDig, true);
+  assert.strictEqual(companion.snapshot().intent.allowBridge, true);
+
+  // 6. Status now reports Dig=on Bridge=on
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!status');
+  tick();
+  assert.ok(bot.sent.some(m => m.includes('Dig=on Bridge=on')));
+
+  // 7. Death/reset resets switches to off
+  bot.emit('death');
+  assert.strictEqual(companion.snapshot().intent.canDig, false);
+  assert.strictEqual(companion.snapshot().intent.allowBridge, false);
 
   companion.dispose();
 });

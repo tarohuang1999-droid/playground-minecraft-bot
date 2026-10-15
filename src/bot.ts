@@ -102,7 +102,9 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
         ? `(${snapshot.world.spawnPoint.x.toFixed(1)},${snapshot.world.spawnPoint.y.toFixed(1)},${snapshot.world.spawnPoint.z.toFixed(1)})`
         : 'None';
       const weapon = snapshot.world.inventory.bestWeapon?.name ?? (bot as any).heldItem?.name ?? 'None';
-      const msg = `Intent=${snapshot.intent.mode} HP=${snapshot.world.self.health}/20 Food=${snapshot.world.self.food}/20 Action=${actions.join(',') || 'Idle'} Base=${baseStr} Spawn=${spawnStr} Weapon=${weapon} FreeSlots=${snapshot.world.inventory.freeSlots}`;
+      const digStr = snapshot.intent.canDig ? 'on' : 'off';
+      const bridgeStr = snapshot.intent.allowBridge ? 'on' : 'off';
+      const msg = `Intent=${snapshot.intent.mode} HP=${snapshot.world.self.health}/20 Food=${snapshot.world.self.food}/20 Action=${actions.join(',') || 'Idle'} Base=${baseStr} Spawn=${spawnStr} Weapon=${weapon} FreeSlots=${snapshot.world.inventory.freeSlots} Dig=${digStr} Bridge=${bridgeStr}`;
       logger?.info('[status] ' + msg);
       chat.enqueue(msg);
     },
@@ -243,6 +245,29 @@ export function attachCompanion(bot: CompanionPort, owner: string, options: { ad
         runner.requestUrgentTick();
         return;
       }
+    }
+
+    if (event.type === 'command_usage') {
+      logger?.warn(`[chat] command usage error: ${event.message}`);
+      chat.enqueue(event.message);
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'set_dig') {
+      logger?.info(`[chat] accepted command: dig ${event.enabled ? 'on' : 'off'}`);
+      runner.enqueue(event);
+      chat.enqueue(`Dig=${event.enabled ? 'on' : 'off'}`);
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'set_bridge') {
+      logger?.info(`[chat] accepted command: bridge ${event.enabled ? 'on' : 'off'}`);
+      runner.enqueue(event);
+      chat.enqueue(`Bridge=${event.enabled ? 'on' : 'off'}`);
+      runner.requestUrgentTick();
+      return;
     }
 
     logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);

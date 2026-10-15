@@ -112,6 +112,58 @@ test('dual-channel blending: Follow (MOVE, LOOK) and RoutineEat (HAND, INVENTORY
   assert.ok(winnerTypes.has('RoutineEat'));
 });
 
+test('resource contract: off navigation (MOVE, LOOK) blends with RoutineEat; on navigation (MOVE, LOOK, HAND, INVENTORY) is preempted by RoutineEat', () => {
+  const arbiter = createArbiter();
+  const available = new Set(['NormalFollow', 'RoutineEat', 'EmergencyEat', 'EquipBest', 'Idle']);
+  const tree = createCompanionTree(available);
+  const board = createBlackboard('dakaz');
+
+  const world = createWorld('dakaz');
+  world.self.isAlive = true;
+  world.self.food = 14;
+  world.self.health = 20;
+  world.self.position = { x: 0, y: 64, z: 0 };
+  world.master = { username: 'dakaz', entityId: 2, position: { x: 5, y: 64, z: 0 }, distance: 5 };
+  world.inventory.bestFood = { itemId: 102, name: 'cooked_beef', foodPoints: 12 };
+  board.setWorld(world);
+  board.setIntent('FOLLOW', 100);
+
+  // Case 1: canDig=false, allowBridge=false -> requests MOVE, LOOK -> blends with RoutineEat
+  let snapshot = board.snapshot(100);
+  let res = tree.tick(snapshot);
+  let followReq = res.requests.find(r => r.actionType === 'NormalFollow');
+  let eatReq = res.requests.find(r => r.actionType === 'RoutineEat');
+  assert.ok(followReq && eatReq);
+  assert.deepEqual(followReq.requiredResources, ['MOVE', 'LOOK']);
+  assert.deepEqual(eatReq.requiredResources, ['HAND', 'INVENTORY']);
+
+  let winners = arbiter.select(res.requests);
+  assert.equal(winners.length, 2);
+  assert.ok(winners.some(w => w.actionType === 'NormalFollow'));
+  assert.ok(winners.some(w => w.actionType === 'RoutineEat'));
+
+  // Case 2: canDig=true -> requests MOVE, LOOK, HAND, INVENTORY -> conflicts with RoutineEat (60 > 20)
+  board.setDig(true, 200);
+  snapshot = board.snapshot(200);
+  res = tree.tick(snapshot);
+  followReq = res.requests.find(r => r.actionType === 'NormalFollow');
+  eatReq = res.requests.find(r => r.actionType === 'RoutineEat');
+  assert.ok(followReq && eatReq);
+  assert.deepEqual(followReq.requiredResources, ['MOVE', 'LOOK', 'HAND', 'INVENTORY']);
+
+  winners = arbiter.select(res.requests);
+  assert.equal(winners.length, 1);
+  assert.equal(winners[0]?.actionType, 'RoutineEat', 'RoutineEat (60) preempts NormalFollow (20) holding HAND+INVENTORY');
+
+  // Case 3: canDig=false, allowBridge=true -> also requests 4 resources
+  board.setDig(false, 300);
+  board.setBridge(true, 300);
+  snapshot = board.snapshot(300);
+  res = tree.tick(snapshot);
+  followReq = res.requests.find(r => r.actionType === 'NormalFollow');
+  assert.deepEqual(followReq?.requiredResources, ['MOVE', 'LOOK', 'HAND', 'INVENTORY']);
+});
+
 test('static capability contract: navigation does not dynamically toggle canDig on HAND locking', () => {
   const fakeBot: any = {
     pathfinder: {
