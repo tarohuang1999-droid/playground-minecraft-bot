@@ -1,6 +1,7 @@
 import { createWorld, type Position, type WorldState } from './blackboard.ts';
 import { THRESHOLDS } from './policy.ts';
 import { Vec3 } from 'vec3';
+import { loadPersistentState, savePersistentState } from './state-storage.ts';
 
 export const ARMOR_SLOTS = {
   head: 5,
@@ -193,14 +194,27 @@ export function isAvailableBed(b: any): boolean {
   return true;
 }
 
-export function createPerception(bot: PerceptionSource, owner?: string, options: { now?: () => number } = {}) {
+export interface PerceptionOptions {
+  now?: (() => number) | undefined;
+  storagePath?: string | undefined;
+}
+
+export function createPerception(bot: PerceptionSource, owner?: string, options: PerceptionOptions = {}) {
   let lastHealth = bot.health;
   let lastDamageTime = 0;
   const dynamicThreats = new Map<number, DynamicHostileTarget>();
-  let currentBase: Position | null = null;
-  let currentSpawnPoint: Position | null = null;
+
+  const initialSaved = options.storagePath ? loadPersistentState(options.storagePath) : { base: null, spawnPoint: null };
+  let currentBase: Position | null = initialSaved.base;
+  let currentSpawnPoint: Position | null = initialSaved.spawnPoint;
   let bedNeedsRefresh = false;
   let bedCooldownUntil = 0;
+
+  const persist = () => {
+    if (options.storagePath) {
+      savePersistentState({ base: currentBase, spawnPoint: currentSpawnPoint }, options.storagePath);
+    }
+  };
 
   const getNow = () => (options.now ? options.now() : Date.now());
 
@@ -209,6 +223,7 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
       currentBase = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
       bedNeedsRefresh = true;
       bedCooldownUntil = 0;
+      persist();
     },
 
     getBase(): Position | null {
@@ -218,6 +233,7 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
     setSpawnPoint(pos: Position) {
       currentSpawnPoint = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
       bedNeedsRefresh = false;
+      persist();
     },
 
     getSpawnPoint(): Position | null {
@@ -288,13 +304,14 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
       world.bedNeedsRefresh = bedNeedsRefresh;
       world.nearbyBed = null;
 
-      // Stage 13 / User setup 重生點:
-      // - 無主人: 找到最近的床並設定重生點
-      // - 有主人有base: 則會自動找base 周圍的空床設定 並設定重生點
+      // Stage 13 / SetSpawn 依使用者需求：先改成 set base 才觸發，先註解 idle 自動執行
       const hasOwner = !!owner && owner.trim().length > 0;
-      const shouldSearchBed = hasOwner ? (currentBase !== null) : true;
+      // [註解] 原先 idle 自動找床：const shouldSearchBed = hasOwner ? (currentBase !== null) : true;
+      // [註解] 原先判斷：if (shouldSearchBed && bedCooldownUntil <= now && (currentSpawnPoint === null || bedNeedsRefresh)) {
+      // 改為：有主人時僅在 set base 標記 bedNeedsRefresh 時才觸發；無主人時維持 currentSpawnPoint === null 自動找床
+      const shouldSearchBed = hasOwner ? bedNeedsRefresh : (currentSpawnPoint === null);
 
-      if (shouldSearchBed && bedCooldownUntil <= now && (currentSpawnPoint === null || bedNeedsRefresh)) {
+      if (shouldSearchBed && bedCooldownUntil <= now) {
         const centerPos = currentBase ?? origin;
         if (centerPos && typeof (bot as any).findBlock === 'function') {
           const point = new Vec3(centerPos.x, centerPos.y, centerPos.z);

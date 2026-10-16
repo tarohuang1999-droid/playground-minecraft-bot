@@ -13,6 +13,7 @@ import { createNavigation, setupMovements } from './actions/navigation.ts';
 import { createInventoryAdapters } from './actions/inventory.ts';
 import { createCombatAdapter } from './actions/combat.ts';
 import { createLogger, type Logger } from './logger.ts';
+import { DEFAULT_STATE_FILE } from './state-storage.ts';
 
 export interface CompanionPort extends PerceptionSource {
   username?: string;
@@ -21,10 +22,17 @@ export interface CompanionPort extends PerceptionSource {
   chat(message: string): void;
 }
 
-export function attachCompanion(bot: CompanionPort, owner: string, options: { adapters?: AdapterRegistry; now?: () => number; logger?: Logger } = {}) {
+export function attachCompanion(
+  bot: CompanionPort,
+  owner: string,
+  options: { adapters?: AdapterRegistry; now?: () => number; logger?: Logger; storagePath?: string } = {}
+) {
   const logger = options.logger;
   const board = createBlackboard(owner);
-  const perception = createPerception(bot, owner, options.now ? { now: options.now } : {});
+  const perception = createPerception(bot, owner, {
+    now: options.now,
+    storagePath: options.storagePath,
+  });
   const chat = createChat(message => bot.chat(message));
   const navigation = createNavigation(bot as any, logger, {
     onComeArrived: () => {
@@ -322,7 +330,7 @@ export function startBot(env: NodeJS.ProcessEnv = process.env) {
   logger.info(`File logging active at: ${logger.logFilePath}`);
   const bot = createBot({ host: env.BOT_HOST ?? '127.0.0.1', port, username: botName, auth: 'offline' });
   bot.loadPlugin(pathfinder);
-  const companion = attachCompanion(bot, owner, { logger });
+  const companion = attachCompanion(bot, owner, { logger, storagePath: DEFAULT_STATE_FILE });
   bot.on('spawn', () => logger.info(`[companion] spawned; owner=${owner}; Stage 3 (follow active)`));
   bot.on('death', () => logger.warn('[companion] died!'));
   bot.on('respawn', () => logger.info('[companion] respawned'));
