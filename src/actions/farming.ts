@@ -167,12 +167,16 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                   }
                   if (!active || !ctx.isActive()) return;
 
+                  // Give server 50ms to process slot selection packet
+                  await new Promise(r => setTimeout(r, 50));
+                  if (!active || !ctx.isActive()) return;
+
                   const held = (bot as any).heldItem;
                   logger?.info(
                     `[farming] Held item confirmed: ${held?.name ?? 'empty'} (count=${held?.count ?? 0})`
                   );
 
-                  // 3. Verify target farmland
+                  // 3. Verify target farmland & check space and light level above
                   const farmlandBlock =
                     typeof (bot as any).blockAt === 'function'
                       ? (bot as any).blockAt(new Vec3(targetPos.x, targetPos.y, targetPos.z))
@@ -187,6 +191,48 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     );
                     options.onFarmlandFailed?.(targetPos);
                     finishedResult = { status: 'FAILURE', reason: 'Target is not farmland' };
+                    return;
+                  }
+
+                  const abovePos = new Vec3(targetPos.x, targetPos.y + 1, targetPos.z);
+                  const aboveBefore =
+                    typeof (bot as any).blockAt === 'function'
+                      ? (bot as any).blockAt(abovePos)
+                      : null;
+                  const blockLight = aboveBefore?.light;
+                  const skyLight = aboveBefore?.skyLight;
+
+                  logger?.info(
+                    `[farming] Pre-plant target check at (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): farmland=${farmlandBlock.name}, above=${aboveBefore?.name ?? 'unknown'}, blockLight=${blockLight ?? 'N/A'}, skyLight=${skyLight ?? 'N/A'}`
+                  );
+
+                  if (
+                    aboveBefore &&
+                    aboveBefore.name !== 'air' &&
+                    aboveBefore.name !== 'cave_air'
+                  ) {
+                    logger?.warn(
+                      `[farming] Target space above farmland (${abovePos.x}, ${abovePos.y}, ${abovePos.z}) is occupied by ${aboveBefore.name}`
+                    );
+                    options.onFarmlandFailed?.(targetPos);
+                    finishedResult = { status: 'FAILURE', reason: 'Target space is occupied' };
+                    return;
+                  }
+
+                  if (
+                    blockLight !== undefined &&
+                    skyLight !== undefined &&
+                    blockLight < 8 &&
+                    skyLight < 8
+                  ) {
+                    logger?.warn(
+                      `[farming] Insufficient light at (${abovePos.x}, ${abovePos.y}, ${abovePos.z}): blockLight=${blockLight}, skyLight=${skyLight}. Wheat requires light level >= 8. Place torches nearby!`
+                    );
+                    options.onFarmlandFailed?.(targetPos);
+                    finishedResult = {
+                      status: 'FAILURE',
+                      reason: 'Insufficient light level for crop',
+                    };
                     return;
                   }
 
@@ -240,8 +286,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                   if (!active || !ctx.isActive()) return;
 
                   // 6. Verify success: check block above or seed count
-                  const abovePos = new Vec3(targetPos.x, targetPos.y + 1, targetPos.z);
-                  const aboveBlock =
+                  const aboveAfter =
                     typeof (bot as any).blockAt === 'function'
                       ? (bot as any).blockAt(abovePos)
                       : null;
@@ -251,14 +296,15 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     .reduce((acc: number, cur: any) => acc + (cur.count ?? 1), 0);
 
                   const blockChanged =
-                    aboveBlock && aboveBlock.name !== 'air' && aboveBlock.name !== 'cave_air';
+                    aboveAfter && aboveAfter.name !== 'air' && aboveAfter.name !== 'cave_air';
                   const seedDecreased = newCount < initialCount;
 
                   logger?.info(
-                    `[farming] Verification on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): method=${methodUsed}, aboveBlock=${aboveBlock?.name ?? 'null'}, seeds: ${initialCount} -> ${newCount}`
+                    `[farming] Verification on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): method=${methodUsed}, aboveBlock=${aboveAfter?.name ?? 'null'}, seeds: ${initialCount} -> ${newCount}`
                   );
 
-                  const isSuccess = blockChanged || seedDecreased || !aboveBlock;
+                  const isSuccess =
+                    (blockChanged || seedDecreased || (!aboveAfter && !placeError)) && !placeError;
 
                   if (isSuccess) {
                     options.onCropPlanted?.(cropType, targetPos);
@@ -268,12 +314,12 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     finishedResult = { status: 'SUCCESS' };
                   } else {
                     logger?.warn(
-                      `[farming] Planting verification failed on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): aboveBlock is still ${aboveBlock?.name ?? 'air'}, seeds unchanged (${newCount}/${initialCount}), error=${placeError?.message ?? 'none'}`
+                      `[farming] Planting verification failed on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): aboveBlock is still ${aboveAfter?.name ?? 'air'}, seeds unchanged (${newCount}/${initialCount}), error=${placeError?.message ?? 'none'}`
                     );
                     options.onFarmlandFailed?.(targetPos);
                     finishedResult = {
                       status: 'FAILURE',
-                      reason: `Planting verification failed: aboveBlock=${aboveBlock?.name ?? 'air'}, error=${placeError?.message ?? 'none'}`,
+                      reason: `Planting verification failed: aboveBlock=${aboveAfter?.name ?? 'air'}, error=${placeError?.message ?? 'none'}`,
                     };
                   }
                 } catch (err) {
