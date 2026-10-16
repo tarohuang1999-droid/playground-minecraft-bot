@@ -56,7 +56,7 @@ BOT_PORT=25565 pnpm run test:paper
 ## 設計與交接
 
 - [最新設計](docs/sys-design/system-design-v1.1.md)
-- [分階段實作計畫](docs/implement-plan.md)
+- [分階段實作計畫索引](docs/implement-plan.md) ([Stage 1: 核心引擎與有界導航](docs/implement-plan-stage-1.md) | [Stage 2: 生存採集、狩獵與農業](docs/implement-plan-stage-2.md))
 - [Stage 1／2 審核與 Stage 3 交接](docs/agent-note/stage-1-2-handoff.md)
 
 LLM、JEV/KEV、Agent Memory 均 pending，目前沒有建立相關接口。
