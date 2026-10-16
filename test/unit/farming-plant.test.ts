@@ -586,27 +586,20 @@ test('farming adapter: avoids planting when bot collides with crop space', async
   assert.ok(newGoal !== null, 'Should set backup goal to move outside crop space');
 });
 
-test('priority policy: calculateActionPriority applies intent boost and combat equip boost', () => {
-  const board = createBlackboard('owner');
+test('priority policy: calculateActionPriority computes final priority from mode bonus and action base priority', () => {
+  // Final priority = priority(mode) + priority(action)
+  // Combat mode bonus (60) + Combat base (20) = 80
+  assert.equal(calculateActionPriority('Combat'), 80);
 
-  // Case 1: Peaceful mode, no threats -> EquipBest is low maintenance priority (15)
-  const peaceSnap = board.snapshot(100);
-  assert.equal(calculateActionPriority('EquipBest', peaceSnap), 15);
-  assert.equal(calculateActionPriority('FarmPlant', peaceSnap), 30);
+  // Farm mode bonus (25) + FarmPlant base (15) = 40
+  assert.equal(calculateActionPriority('FarmPlant'), 40);
 
-  // Case 2: Intent mode is FARM -> FarmPlant receives +10 boost (40)
-  board.setIntent('FARM', 200);
-  const farmSnap = board.snapshot(200);
-  assert.equal(calculateActionPriority('FarmPlant', farmSnap), 40);
-  // EquipBest remains low (15) so it never preempts FarmPlant!
-  assert.equal(calculateActionPriority('EquipBest', farmSnap), 15);
+  // Maintenance mode bonus (0) + EquipBest base (15) = 15
+  // FarmPlant (40) > EquipBest (15), ensuring leisure equipment checks never preempt farming
+  assert.equal(calculateActionPriority('EquipBest'), 15);
 
-  // Case 3: Combat mode or threats exist -> EquipBest jumps to 75 to arm the bot
-  const world = createWorld('owner');
-  world.threats = [{ entityId: 99, name: 'zombie', position: { x: 5, y: 64, z: 5 }, distance: 5 }];
-  board.setWorld(world);
-  const threatSnap = board.snapshot(300);
-  assert.equal(calculateActionPriority('EquipBest', threatSnap), 75);
+  // Survival mode bonus (70) + Retreat base (30) = 100
+  assert.equal(calculateActionPriority('Retreat'), 100);
 });
 
 test('farming integration: 5 consecutive planting failures triggers circuit breaker and switches to IDLE', () => {

@@ -81,7 +81,7 @@ export function action(
           actionType: spec.actionType,
           targetId: spec.targetId,
           params: spec.params,
-          priority: calculateActionPriority(spec.actionType, ctx.snapshot),
+          priority: calculateActionPriority(spec.actionType),
           requiredResources: spec.requiredResources ?? policy.requiredResources,
         },
       ]);
