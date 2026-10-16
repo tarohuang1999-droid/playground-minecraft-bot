@@ -23,23 +23,24 @@ export function workSubtree(
     primaryNode: BtNode,
     getTargetPos: (s: BlackboardSnapshot) => { x: number; y: number; z: number } | null
   ) => {
-    if (!available.has('UnstickCorner') && !available.has('DetourWaypoint')) {
+    if (!available.has('DetourWaypoint')) {
       return primaryNode;
     }
     const stages: BtNode[] = [];
-    if (available.has('UnstickCorner')) {
-      stages.push(
-        action(`${id}-unstick`, s => {
-          logger?.info(`[recovery] ${id} recovery phase 1: issuing UnstickCorner`);
-          return {
-            actionType: 'UnstickCorner',
-            targetId: null,
-            params: { missionId: s.intent.missionId },
-            requiredResources: ['MOVE', 'LOOK'],
-          };
-        })
-      );
-    }
+    // UnstickCorner disabled / commented out: corner clipping is resolved at pathfinder getMoveDiagonal level
+    // if (available.has('UnstickCorner')) {
+    //   stages.push(
+    //     action(`${id}-unstick`, s => {
+    //       logger?.info(`[recovery] ${id} recovery phase 1: issuing UnstickCorner`);
+    //       return {
+    //         actionType: 'UnstickCorner',
+    //         targetId: null,
+    //         params: { missionId: s.intent.missionId },
+    //         requiredResources: ['MOVE', 'LOOK'],
+    //       };
+    //     })
+    //   );
+    // }
     if (available.has('DetourWaypoint')) {
       const createDetourAction = (subId: string) => action(`${id}-detour-${subId}`, s => {
         const pos = getTargetPos(s);

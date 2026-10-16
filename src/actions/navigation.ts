@@ -344,6 +344,34 @@ export function setupMovements(
       return b;
     };
 
+    // Patch movements.getMoveDiagonal to guarantee turning clearance and prevent corner clipping.
+    // In mineflayer-pathfinder, diagonal moves cut corners if min(cost1, cost2) <= 100, which ignores
+    // solid obstacle blocks on the adjacent orthogonal axis. Because player hitbox is 0.6x0.6 (radius 0.3),
+    // cutting diagonally past a full 1.0x1.0 solid block causes the player body to collide with the corner.
+    // By requiring BOTH orthogonal paths (Side 1 and Side 2) to be clear, A* is forced to plan clean
+    // orthogonal L-turns with full body clearance around solid corners, just like fence clearance.
+    const origGetMoveDiagonal = movements.getMoveDiagonal;
+    movements.getMoveDiagonal = function (node: any, dir: any, neighbors: any[]) {
+      const blockC = this.getBlock(node, dir.x, 0, dir.z);
+      const y = blockC.physical ? 1 : 0;
+
+      // Side 1: (0, y, dir.z)
+      const bB1 = this.getBlock(node, 0, y + 1, dir.z);
+      const bC1 = this.getBlock(node, 0, y, dir.z);
+      const blocked1 = (!bB1.safe && (!this.canDig || !this.safeToBreak(bB1))) ||
+                       (!bC1.safe && (!this.canDig || !this.safeToBreak(bC1)));
+      if (blocked1) return;
+
+      // Side 2: (dir.x, y, 0)
+      const bB2 = this.getBlock(node, dir.x, y + 1, 0);
+      const bC2 = this.getBlock(node, dir.x, y, 0);
+      const blocked2 = (!bB2.safe && (!this.canDig || !this.safeToBreak(bB2))) ||
+                       (!bC2.safe && (!this.canDig || !this.safeToBreak(bC2)));
+      if (blocked2) return;
+
+      return origGetMoveDiagonal.call(this, node, dir, neighbors);
+    };
+
     bot.pathfinder.setMovements?.(movements);
     logger?.info('[navigation] Movements successfully configured', {
       canDig: movements.canDig,

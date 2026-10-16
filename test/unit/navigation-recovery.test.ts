@@ -289,8 +289,8 @@ test('unstickCorner cancel cleans up manual controls', () => {
   assert.equal(adapter.isStopped!(), true);
 });
 
-test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorner, retry resumes NormalFollow, second stall triggers DetourWaypoint', () => {
-  const available = new Set(['NormalFollow', 'UnstickCorner', 'DetourWaypoint']);
+test('Behavior Tree integrated Recovery: NormalFollow stall triggers DetourWaypoint, retry resumes NormalFollow', () => {
+  const available = new Set(['NormalFollow', 'DetourWaypoint']);
   let failedReason: string | null = null;
   let failedMission: string | null = null;
 
@@ -326,41 +326,8 @@ test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorn
     },
   });
 
-  // Tick 2: BT Recovery node catches failure and issues Stage 0: UnstickCorner
+  // Tick 2: BT Recovery node catches failure and directly issues DetourWaypoint (stage 1)
   snap = board.snapshot(1);
-  res = tree.tick(snap);
-  assert.equal(res.status, 'RUNNING');
-  assert.equal(res.requests[0]?.actionType, 'UnstickCorner');
-  const unstickRunId = res.requests[0]!.runId;
-
-  // Simulate UnstickCorner succeeds
-  board.setRuntime({
-    ...snap.runtime,
-    results: {
-      ...snap.runtime.results,
-      [unstickRunId]: { status: 'SUCCESS' },
-    },
-  });
-
-  // Tick 3: UnstickCorner succeeded -> BT recovery re-ticks NormalFollow!
-  snap = board.snapshot(2);
-  res = tree.tick(snap);
-  assert.equal(res.status, 'RUNNING');
-  assert.equal(res.requests[0]?.actionType, 'NormalFollow');
-  const followRunId2 = res.requests[0]!.runId;
-  assert.notEqual(followRunId2, followRunId1); // Fresh runId!
-
-  // 2. Simulate NormalFollow fails again (second stall - wall continuous)
-  board.setRuntime({
-    ...snap.runtime,
-    results: {
-      ...snap.runtime.results,
-      [followRunId2]: { status: 'FAILURE', reason: 'Path obstructed or stalled' },
-    },
-  });
-
-  // Tick 4: BT Recovery node catches failure and issues Stage 1: DetourWaypoint!
-  snap = board.snapshot(3);
   res = tree.tick(snap);
   assert.equal(res.status, 'RUNNING');
   assert.equal(res.requests[0]?.actionType, 'DetourWaypoint');
@@ -376,13 +343,13 @@ test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorn
     },
   });
 
-  // Tick 5: Detour succeeded -> resumes NormalFollow again!
-  snap = board.snapshot(4);
+  // Tick 3: Detour succeeded -> resumes NormalFollow again!
+  snap = board.snapshot(2);
   res = tree.tick(snap);
   assert.equal(res.status, 'RUNNING');
   assert.equal(res.requests[0]?.actionType, 'NormalFollow');
-  const followRunId3 = res.requests[0]!.runId;
-  assert.notEqual(followRunId3, followRunId2);
+  const followRunId2 = res.requests[0]!.runId;
+  assert.notEqual(followRunId2, followRunId1);
 });
 
 test('findDetourWaypoint generates ~6 block perpendicular candidates, evaluates vertical offsets, and skips attempted points', () => {

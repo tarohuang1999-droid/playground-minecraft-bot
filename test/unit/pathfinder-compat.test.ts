@@ -312,3 +312,61 @@ test('Executor: cancellation confirmation timeout (1000ms) transitions to FAULTE
   assert.match(executor.fault()!, /cancellation confirmation timed out/);
   assert.equal(executor.runtime().lockedResources.MOVE, 'run-1');
 });
+
+test('Movements: getMoveDiagonal prohibits diagonal moves when either orthogonal side is obstructed (corner clearance)', () => {
+  const bot = createMockBot();
+  const movements = setupMovements(bot, undefined, { canDig: false, allowBridge: false });
+  assert.ok(movements);
+
+  const worldMap = new Map<string, any>();
+  const setBlock = (x: number, y: number, z: number, b: any) => {
+    worldMap.set(`${x},${y},${z}`, {
+      position: new Vec3(x, y, z),
+      shapes: b.boundingBox === 'block' ? [[0, 0, 0, 1, 1, 1]] : [],
+      ...b,
+    });
+  };
+
+  bot.blockAt = (p: any) => {
+    const key = `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`;
+    return worldMap.get(key) ?? {
+      name: 'air',
+      type: 0,
+      boundingBox: 'empty',
+      shapes: [],
+      position: p,
+    };
+  };
+
+  // Node at (0, 64, 0). Ground at y=63.
+  const node: any = { x: 0, y: 64, z: 0, remainingBlocks: 0 };
+  const stone = { name: 'stone', type: mcData.blocksByName.stone.id, boundingBox: 'block' };
+
+  // Ground under origin, destination (1, 63, 1), side 1 (0, 63, 1), and side 2 (1, 63, 0)
+  setBlock(0, 63, 0, stone);
+  setBlock(1, 63, 1, stone);
+  setBlock(0, 63, 1, stone);
+  setBlock(1, 63, 0, stone);
+
+  // Scenario 1: Side 1 (0, 64, 1) has a solid block (corner obstacle)
+  setBlock(0, 64, 1, stone);
+  const neighbors1: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, neighbors1);
+  assert.equal(neighbors1.length, 0, 'Must not generate diagonal move when Side 1 is blocked');
+
+  // Scenario 2: Side 1 is clear, but Side 2 (1, 64, 0) is blocked
+  worldMap.delete('0,64,1');
+  setBlock(1, 64, 0, stone);
+  const neighbors2: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, neighbors2);
+  assert.equal(neighbors2.length, 0, 'Must not generate diagonal move when Side 2 is blocked');
+
+  // Scenario 3: Both orthogonal sides are completely clear air
+  worldMap.delete('1,64,0');
+  const neighbors3: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, neighbors3);
+  assert.equal(neighbors3.length, 1, 'Should generate diagonal move when both orthogonal sides have turning clearance');
+  assert.equal(neighbors3[0].x, 1);
+  assert.equal(neighbors3[0].y, 64);
+  assert.equal(neighbors3[0].z, 1);
+});
