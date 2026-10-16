@@ -2,17 +2,12 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createBlackboard, createWorld } from '../../src/blackboard.ts';
-import { createPerception, HOSTILE_MOBS, isHostileMob, type PerceptionSource } from '../../src/perception.ts';
-import { combatSubtree, getCombatTarget } from '../../src/bt/subtrees/combat.ts';
-import { createCompanionTree } from '../../src/bt/companion-tree.ts';
+import { createPerception, isHostileMob, type PerceptionSource } from '../../src/perception.ts';
+import { getCombatTarget } from '../../src/bt/subtrees/combat.ts';
 import { createCombatAdapter } from '../../src/actions/combat.ts';
-import { createInventoryAdapters } from '../../src/actions/inventory.ts';
-import { createNavigation } from '../../src/actions/navigation.ts';
 import { attachCompanion } from '../../src/bot.ts';
 import { createArbiter } from '../../src/execution/arbiter.ts';
-import { createExecutor } from '../../src/execution/executor.ts';
 import type { ActionContext, ActionRequest } from '../../src/execution/types.ts';
-import { THRESHOLDS } from '../../src/policy.ts';
 
 test('isHostileMob: safely identifies hostiles and excludes players/animals [RULE-08]', () => {
   // 1. Hostile mobs
@@ -76,9 +71,22 @@ test('combat subtree: enters on threat <= 8 blocks, exhibits hysteresis, and dis
   // Case 1: Threat at 9 blocks (> combatEnter 8) -> does NOT enter combat
   board.setIntent('FOLLOW', 1000);
   const worldNoCombat = createWorld('dakaz');
-  worldNoCombat.self = { position: { x: 0, y: 64, z: 0 }, health: 20, food: 20, isAlive: true, tookDamageRecently: false };
-  worldNoCombat.master = { username: 'dakaz', entityId: 2, position: { x: 2, y: 64, z: 0 }, distance: 2 };
-  worldNoCombat.threats = [{ entityId: 10, name: 'zombie', position: { x: 9, y: 64, z: 0 }, distance: 9 }];
+  worldNoCombat.self = {
+    position: { x: 0, y: 64, z: 0 },
+    health: 20,
+    food: 20,
+    isAlive: true,
+    tookDamageRecently: false,
+  };
+  worldNoCombat.master = {
+    username: 'dakaz',
+    entityId: 2,
+    position: { x: 2, y: 64, z: 0 },
+    distance: 2,
+  };
+  worldNoCombat.threats = [
+    { entityId: 10, name: 'zombie', position: { x: 9, y: 64, z: 0 }, distance: 9 },
+  ];
   board.setWorld(worldNoCombat);
 
   let snap = board.snapshot(1000);
@@ -86,7 +94,9 @@ test('combat subtree: enters on threat <= 8 blocks, exhibits hysteresis, and dis
 
   // Case 2: Threat enters 6 blocks (<= combatEnter 8) -> enters combat
   const worldInCombat = structuredClone(worldNoCombat);
-  worldInCombat.threats = [{ entityId: 10, name: 'zombie', position: { x: 6, y: 64, z: 0 }, distance: 6 }];
+  worldInCombat.threats = [
+    { entityId: 10, name: 'zombie', position: { x: 6, y: 64, z: 0 }, distance: 6 },
+  ];
   board.setWorld(worldInCombat);
   snap = board.snapshot(1050);
   const target = getCombatTarget(snap, available);
@@ -103,14 +113,18 @@ test('combat subtree: enters on threat <= 8 blocks, exhibits hysteresis, and dis
   };
   board.setRuntime(runtimeWithCombat);
   const worldAt10 = structuredClone(worldInCombat);
-  worldAt10.threats = [{ entityId: 10, name: 'zombie', position: { x: 10, y: 64, z: 0 }, distance: 10 }];
+  worldAt10.threats = [
+    { entityId: 10, name: 'zombie', position: { x: 10, y: 64, z: 0 }, distance: 10 },
+  ];
   board.setWorld(worldAt10);
   snap = board.snapshot(1100);
   assert.strictEqual(getCombatTarget(snap, available)?.entityId, 10);
 
   // Case 4: Target exceeds combatExit (17 > 16) -> disengages
   const worldAt17 = structuredClone(worldAt10);
-  worldAt17.threats = [{ entityId: 10, name: 'zombie', position: { x: 17, y: 64, z: 0 }, distance: 17 }];
+  worldAt17.threats = [
+    { entityId: 10, name: 'zombie', position: { x: 17, y: 64, z: 0 }, distance: 17 },
+  ];
   board.setWorld(worldAt17);
   snap = board.snapshot(1150);
   assert.strictEqual(getCombatTarget(snap, available), null);
@@ -142,19 +156,25 @@ test('combat adapter: equips best weapon, chases target, looks and attacks withi
     entity: { position: { x: 0, y: 64, z: 0 } },
     entities: { 10: targetZombie },
     inventory: {
-      items: () => [
-        { type: 100, name: 'iron_sword', id: 100 },
-      ],
+      items: () => [{ type: 100, name: 'iron_sword', id: 100 }],
       slots: [],
     },
     heldItem: null,
     pathfinder: {
-      setGoal: (g: any) => { currentGoal = g; },
+      setGoal: (g: any) => {
+        currentGoal = g;
+      },
       movements: { canDig: true },
     },
-    equip: async (item: any) => { equippedItem = item; },
-    lookAt: async () => { lookAtCalled = true; },
-    attack: () => { attackCount++; },
+    equip: async (item: any) => {
+      equippedItem = item;
+    },
+    lookAt: async () => {
+      lookAtCalled = true;
+    },
+    attack: () => {
+      attackCount++;
+    },
   };
 
   const adapterFactory = createCombatAdapter(bot);
@@ -177,7 +197,13 @@ test('combat adapter: equips best weapon, chases target, looks and attacks withi
     isActive: () => true,
     getSnapshot: () => ({
       world: {
-        self: { position: { x: 0, y: 64, z: 0 }, health: 20, food: 20, isAlive: true, tookDamageRecently: false },
+        self: {
+          position: { x: 0, y: 64, z: 0 },
+          health: 20,
+          food: 20,
+          isAlive: true,
+          tookDamageRecently: false,
+        },
         master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
         base: null,
         spawnPoint: null,
@@ -194,7 +220,14 @@ test('combat adapter: equips best weapon, chases target, looks and attacks withi
           pendingArmorUpgrade: null,
         },
       },
-      intent: { mode: 'FOLLOW', canDig: false, allowBridge: false, missionId: 'm1', updatedAt: 0, intentRevision: 1 },
+      intent: {
+        mode: 'FOLLOW',
+        canDig: false,
+        allowBridge: false,
+        missionId: 'm1',
+        updatedAt: 0,
+        intentRevision: 1,
+      },
       runtime: { activeRuns: {}, results: {}, cooldowns: {}, lockedResources: {} as any },
       revision: 1,
       observedAt: Date.now(),
@@ -279,7 +312,9 @@ test('integration: Follow preempted by Combat on zombie spawn, auto-resumes Foll
     food = 20;
     goalsSet: any[] = [];
     pathfinder = {
-      setGoal: (goal: any, dynamic?: boolean) => { this.goalsSet.push({ goal, dynamic }); },
+      setGoal: (goal: any, dynamic?: boolean) => {
+        this.goalsSet.push({ goal, dynamic });
+      },
       setMovements: (_m: any) => {},
     };
     entities: Record<number, any> = {};
@@ -292,11 +327,17 @@ test('integration: Follow preempted by Combat on zombie spawn, auto-resumes Foll
     heldItem: any = { name: 'iron_sword' };
     attacks: any[] = [];
     equipCalls: any[] = [];
-    equip = async (item: any) => { this.equipCalls.push(item); };
-    attack = (target: any) => { this.attacks.push(target); };
+    equip = async (item: any) => {
+      this.equipCalls.push(item);
+    };
+    attack = (target: any) => {
+      this.attacks.push(target);
+    };
     lookAt = async () => {};
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new CompanionCombatBot();
@@ -309,17 +350,26 @@ test('integration: Follow preempted by Combat on zombie spawn, auto-resumes Foll
 
   // Command: follow owner (distance is 5 > 2.2, so NormalFollow starts)
   bot.emit('chat', 'dakaz', '!follow');
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.strictEqual(companion.snapshot().intent.mode, 'FOLLOW');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
   assert.strictEqual(companion.snapshot().runtime.lockedResources.HAND, null);
 
   // Spawn hostile zombie at distance 4 (<= combatEnter 8)
-  const zombie = { id: 10, name: 'zombie', position: { x: 4, y: 64, z: 0 }, height: 1.8, health: 20, isValid: true };
+  const zombie = {
+    id: 10,
+    name: 'zombie',
+    position: { x: 4, y: 64, z: 0 },
+    height: 1.8,
+    health: 20,
+    isValid: true,
+  };
   bot.entities[10] = zombie;
 
   // Next physicsTick: Combat (80) preempts NormalFollow (20)
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
   assert.match(companion.snapshot().runtime.lockedResources.HAND ?? '', /Combat/);
   assert.match(companion.snapshot().runtime.lockedResources.LOOK ?? '', /Combat/);
@@ -330,7 +380,9 @@ test('integration: Follow preempted by Combat on zombie spawn, auto-resumes Foll
   delete bot.entities[10];
 
   // Next physicsTick: Combat finishes, Bot automatically resumes NormalFollow without manual intervention
-  bot.emit('physicsTick'); bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
   assert.strictEqual(companion.snapshot().runtime.lockedResources.HAND, null);
 });
@@ -357,7 +409,10 @@ test('perception: dynamic hostile targets tracks non-owner player for 30s and ow
   assert.strictEqual(world.threats.length, 0);
 
   // 1. Non-owner player attacks bot: 30s hostile
-  perception.recordAttacker({ id: 50, username: 'stranger' }, { durationMs: 30000, isOwner: false });
+  perception.recordAttacker(
+    { id: 50, username: 'stranger' },
+    { durationMs: 30000, isOwner: false }
+  );
   world = perception.sample();
   assert.strictEqual(world.threats.length, 1);
   assert.strictEqual(world.threats[0]?.entityId, 50);
@@ -373,7 +428,10 @@ test('perception: dynamic hostile targets tracks non-owner player for 30s and ow
   assert.strictEqual(world.threats.length, 0);
 
   // 2. Owner attacks bot: 3s hostile, maxHits = 1
-  perception.recordAttacker({ id: 2, username: 'dakaz' }, { durationMs: 3000, maxHits: 1, isOwner: true });
+  perception.recordAttacker(
+    { id: 2, username: 'dakaz' },
+    { durationMs: 3000, maxHits: 1, isOwner: true }
+  );
   world = perception.sample();
   assert.strictEqual(world.threats.length, 1);
   assert.strictEqual(world.threats[0]?.entityId, 2);
@@ -388,10 +446,12 @@ test('integration: owner attack unfollows (intent -> STAY) and triggers 1 counte
   class OwnerCombatBot extends EventEmitter {
     entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
     health = 20;
-    food: 20 = 20;
+    food = 20;
     goalsSet: any[] = [];
     pathfinder = {
-      setGoal: (goal: any, dynamic?: boolean) => { this.goalsSet.push({ goal, dynamic }); },
+      setGoal: (goal: any, dynamic?: boolean) => {
+        this.goalsSet.push({ goal, dynamic });
+      },
       setMovements: (_m: any) => {},
     };
     entities: Record<number, any> = {};
@@ -404,15 +464,28 @@ test('integration: owner attack unfollows (intent -> STAY) and triggers 1 counte
     heldItem: any = { name: 'diamond_sword' };
     attacks: any[] = [];
     equipCalls: any[] = [];
-    equip = async (item: any) => { this.equipCalls.push(item); };
-    attack = (target: any) => { this.attacks.push(target); };
+    equip = async (item: any) => {
+      this.equipCalls.push(item);
+    };
+    attack = (target: any) => {
+      this.attacks.push(target);
+    };
     lookAt = async () => {};
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new OwnerCombatBot();
-  const ownerEntity = { id: 2, position: { x: 2, y: 64, z: 0 }, username: 'dakaz', height: 1.8, health: 20, isValid: true };
+  const ownerEntity = {
+    id: 2,
+    position: { x: 2, y: 64, z: 0 },
+    username: 'dakaz',
+    height: 1.8,
+    health: 20,
+    isValid: true,
+  };
   bot.entities[2] = ownerEntity;
   bot.players.dakaz = { entity: ownerEntity, username: 'dakaz' };
 
@@ -421,7 +494,8 @@ test('integration: owner attack unfollows (intent -> STAY) and triggers 1 counte
 
   // Master commands: follow
   bot.emit('chat', 'dakaz', '!follow');
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.strictEqual(companion.snapshot().intent.mode, 'FOLLOW');
 
   // Master hits the bot!
@@ -442,7 +516,8 @@ test('integration: owner attack unfollows (intent -> STAY) and triggers 1 counte
   assert.strictEqual(bot.attacks[0]?.id, 2);
 
   // 4. After 1 hit, owner is removed from threats, Combat finishes and bot remains in STAY mode
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.strictEqual(companion.snapshot().runtime.lockedResources.MOVE, null);
   assert.strictEqual(companion.snapshot().runtime.lockedResources.HAND, null);
   assert.strictEqual(companion.snapshot().intent.mode, 'STAY');
@@ -453,7 +528,7 @@ test('integration: non-owner attack triggers 30s hostile chase and exits on expi
   class NonOwnerCombatBot extends EventEmitter {
     entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
     health = 20;
-    food: 20 = 20;
+    food = 20;
     pathfinder = {
       setGoal: () => {},
       setMovements: () => {},
@@ -468,15 +543,27 @@ test('integration: non-owner attack triggers 30s hostile chase and exits on expi
     heldItem: any = { name: 'iron_sword' };
     attacks: any[] = [];
     equip = async () => {};
-    attack = (target: any) => { this.attacks.push(target); };
+    attack = (target: any) => {
+      this.attacks.push(target);
+    };
     lookAt = async () => {};
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new NonOwnerCombatBot();
   const ownerEntity = { id: 2, position: { x: 5, y: 64, z: 0 }, username: 'dakaz' };
-  const griefer = { id: 88, position: { x: 3, y: 64, z: 0 }, username: 'griefer', type: 'player', height: 1.8, health: 20, isValid: true };
+  const griefer = {
+    id: 88,
+    position: { x: 3, y: 64, z: 0 },
+    username: 'griefer',
+    type: 'player',
+    height: 1.8,
+    health: 20,
+    isValid: true,
+  };
   bot.entities[2] = ownerEntity;
   bot.entities[88] = griefer;
   bot.players.dakaz = { entity: ownerEntity, username: 'dakaz' };
@@ -488,14 +575,17 @@ test('integration: non-owner attack triggers 30s hostile chase and exits on expi
   bot.emit('entityHurt', bot.entity, griefer);
 
   // Next ticks: Combat triggers targeting griefer
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
   assert.ok(bot.attacks.length >= 1);
   assert.strictEqual(bot.attacks[0]?.id, 88);
 
   // Fast forward 31 seconds: hostility expires
   simulatedTime += 31000;
-  bot.emit('physicsTick'); bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
 
   // Combat exits
   assert.strictEqual(companion.snapshot().runtime.lockedResources.MOVE, null);
@@ -505,20 +595,30 @@ test('attacker inference: identifies attacker by recent arm swing when source is
   class ArmSwingBot extends EventEmitter {
     entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
     health = 20;
-    food: 20 = 20;
+    food = 20;
     pathfinder = { setGoal: () => {}, setMovements: () => {} };
     entities: Record<number, any> = {};
     players: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     attacks: any[] = [];
     equip = async () => {};
-    attack = (t: any) => { this.attacks.push(t); };
+    attack = (t: any) => {
+      this.attacks.push(t);
+    };
     lookAt = async () => {};
     chat() {}
   }
 
   const bot = new ArmSwingBot();
-  const playerA = { id: 5, position: { x: 2, y: 64, z: 0 }, username: 'attacker_player', type: 'player', height: 1.8, health: 20, isValid: true };
+  const playerA = {
+    id: 5,
+    position: { x: 2, y: 64, z: 0 },
+    username: 'attacker_player',
+    type: 'player',
+    height: 1.8,
+    health: 20,
+    isValid: true,
+  };
   bot.entities[5] = playerA;
 
   const companion = attachCompanion(bot as any, 'dakaz');
@@ -531,9 +631,9 @@ test('attacker inference: identifies attacker by recent arm swing when source is
   bot.emit('entityHurt', bot.entity);
 
   // Next ticks: Combat engages attacker_player
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
   assert.ok(bot.attacks.length >= 1);
   assert.strictEqual(bot.attacks[0]?.id, 5);
 });
-

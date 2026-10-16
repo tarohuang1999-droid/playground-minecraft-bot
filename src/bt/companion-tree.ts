@@ -13,10 +13,19 @@ export function createCompanionTree(
     logger?: NavigationLogger | undefined;
   }
 ) {
-  return createTree(parallel('companion', [
-    reactiveSelector('primary', [survivalSubtree(available), combatSubtree(available), workSubtree(available, options),
-      action('idle', () => ({ actionType: 'Idle', targetId: null, params: {} })),
-    ]),
-    maintenanceSubtree(available),
-  ], { persistent: true }));
+  return createTree(
+    parallel(
+      'companion',
+      [
+        reactiveSelector('primary', [
+          survivalSubtree(available),
+          combatSubtree(available),
+          workSubtree(available, options),
+          action('idle', () => ({ actionType: 'Idle', targetId: null, params: {} })),
+        ]),
+        maintenanceSubtree(available),
+      ],
+      { persistent: true }
+    )
+  );
 }

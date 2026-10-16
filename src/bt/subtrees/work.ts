@@ -19,30 +19,31 @@ export function workSubtree(
     return ['MOVE', 'LOOK'];
   };
 
-  const withRecovery = (
-    id: string,
-    primaryNode: BtNode,
-  ) => {
-    return retry(
-      `${id}-recovery`,
-      primaryNode,
-      {
-        maxRetries: navigationConfig.recoveryMaxRetries,
-        onFinalFailure: (ctx) => {
-          const missionId = ctx.snapshot.intent.missionId ?? '';
-          logger?.warn(`[recovery] ${id} navigation attempts exhausted; navigation failed for mission "${missionId}"`);
-          options?.onNavigationFailed?.('Path obstructed. Stopped; send !follow, !come or !return to retry.', missionId);
-        },
-      }
-    );
+  const withRecovery = (id: string, primaryNode: BtNode) => {
+    return retry(`${id}-recovery`, primaryNode, {
+      maxRetries: navigationConfig.recoveryMaxRetries,
+      onFinalFailure: ctx => {
+        const missionId = ctx.snapshot.intent.missionId ?? '';
+        logger?.warn(
+          `[recovery] ${id} navigation attempts exhausted; navigation failed for mission "${missionId}"`
+        );
+        options?.onNavigationFailed?.(
+          'Path obstructed. Stopped; send !follow, !come or !return to retry.',
+          missionId
+        );
+      },
+    });
   };
 
   const canFollow = (s: BlackboardSnapshot) =>
     s.world.self.isAlive && s.intent.mode === 'FOLLOW' && s.world.master.entityId !== null;
 
   const follow = (type: 'CatchUpFollow' | 'NormalFollow', enter: number, exit: number) =>
-    guard(`${type}-ready`, s => available.has(type) && canFollow(s) && s.world.master.distance > enter,
-      withRecovery(type,
+    guard(
+      `${type}-ready`,
+      s => available.has(type) && canFollow(s) && s.world.master.distance > enter,
+      withRecovery(
+        type,
         action(type, s => ({
           actionType: type,
           targetId: s.world.master.entityId,
@@ -52,9 +53,10 @@ export function workSubtree(
             missionId: s.intent.missionId,
           },
           requiredResources: getNavResources(s),
-        })),
+        }))
       ),
-      { exit: s => !available.has(type) || !canFollow(s) || s.world.master.distance <= exit });
+      { exit: s => !available.has(type) || !canFollow(s) || s.world.master.distance <= exit }
+    );
 
   const getBestPickupTarget = (s: BlackboardSnapshot) => {
     if (!available.has('PickupItem')) return null;
@@ -73,20 +75,31 @@ export function workSubtree(
     return null;
   };
 
-  const pickup = guard('PickupItem-ready',
+  const pickup = guard(
+    'PickupItem-ready',
     s => getBestPickupTarget(s) !== null,
     action('PickupItem', s => {
       const drop = getBestPickupTarget(s)!;
-      return { actionType: 'PickupItem', targetId: drop.entityId, params: { itemName: drop.itemName } };
+      return {
+        actionType: 'PickupItem',
+        targetId: drop.entityId,
+        params: { itemName: drop.itemName },
+      };
     }),
-    { exit: s => getBestPickupTarget(s) === null });
+    { exit: s => getBestPickupTarget(s) === null }
+  );
 
   const canCome = (s: BlackboardSnapshot) =>
-    s.world.self.isAlive && s.intent.mode === 'COME' && s.intent.targetPosition !== null && s.intent.targetPosition !== undefined;
+    s.world.self.isAlive &&
+    s.intent.mode === 'COME' &&
+    s.intent.targetPosition !== null &&
+    s.intent.targetPosition !== undefined;
 
-  const comeOnce = guard('ComeOnce-ready',
+  const comeOnce = guard(
+    'ComeOnce-ready',
     s => available.has('ComeOnce') && canCome(s),
-    withRecovery('ComeOnce',
+    withRecovery(
+      'ComeOnce',
       action('ComeOnce', s => {
         const pos = s.intent.targetPosition!;
         return {
@@ -102,16 +115,21 @@ export function workSubtree(
           },
           requiredResources: getNavResources(s),
         };
-      }),
+      })
     ),
-    { exit: s => !available.has('ComeOnce') || !canCome(s) });
+    { exit: s => !available.has('ComeOnce') || !canCome(s) }
+  );
 
   const canReturn = (s: BlackboardSnapshot) =>
-    s.world.self.isAlive && s.intent.mode === 'RETURN' && (s.world.base !== null || s.world.spawnPoint !== null);
+    s.world.self.isAlive &&
+    s.intent.mode === 'RETURN' &&
+    (s.world.base !== null || s.world.spawnPoint !== null);
 
-  const returnToBase = guard('ReturnToBase-ready',
+  const returnToBase = guard(
+    'ReturnToBase-ready',
     s => available.has('ReturnToBase') && canReturn(s),
-    withRecovery('ReturnToBase',
+    withRecovery(
+      'ReturnToBase',
       action('ReturnToBase', s => {
         const dest = s.world.base ?? s.world.spawnPoint!;
         return {
@@ -127,17 +145,24 @@ export function workSubtree(
           },
           requiredResources: getNavResources(s),
         };
-      }),
+      })
     ),
-    { exit: s => !available.has('ReturnToBase') || !canReturn(s) });
+    { exit: s => !available.has('ReturnToBase') || !canReturn(s) }
+  );
 
   const canSetSpawn = (s: BlackboardSnapshot) =>
     s.world.self.isAlive &&
     s.world.nearbyBed !== null &&
     (s.world.spawnPoint === null || s.world.bedNeedsRefresh) &&
-    (s.intent.mode !== 'STAY' || (s.world.nearbyBed && Math.hypot(s.world.nearbyBed.x - s.world.self.position.x, s.world.nearbyBed.z - s.world.self.position.z) <= 2.5));
+    (s.intent.mode !== 'STAY' ||
+      (s.world.nearbyBed &&
+        Math.hypot(
+          s.world.nearbyBed.x - s.world.self.position.x,
+          s.world.nearbyBed.z - s.world.self.position.z
+        ) <= 2.5));
 
-  const setSpawn = guard('SetSpawn-ready',
+  const setSpawn = guard(
+    'SetSpawn-ready',
     s => available.has('SetSpawn') && canSetSpawn(s),
     action('SetSpawn', s => {
       const bed = s.world.nearbyBed!;
@@ -147,7 +172,8 @@ export function workSubtree(
         params: { x: bed.x, y: bed.y, z: bed.z },
       };
     }),
-    { exit: s => !available.has('SetSpawn') || !canSetSpawn(s) });
+    { exit: s => !available.has('SetSpawn') || !canSetSpawn(s) }
+  );
 
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),

@@ -1,7 +1,13 @@
 import { emptyRuntime, type BlackboardSnapshot, type RuntimeState } from '../blackboard.ts';
 import { THRESHOLDS } from '../policy.ts';
 import type { Arbiter } from './arbiter.ts';
-import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterRegistry } from './types.ts';
+import type {
+  ActionAdapter,
+  ActionContext,
+  ActionRequest,
+  ActionResult,
+  AdapterRegistry,
+} from './types.ts';
 
 interface Run {
   request: ActionRequest;
@@ -16,7 +22,11 @@ interface Run {
   ctx: ActionContext;
   completionQueued: boolean;
 }
-export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logger?: { error?(m: string, d?: unknown): void }) {
+export function createExecutor(
+  arbiter: Arbiter,
+  adapters: AdapterRegistry,
+  logger?: { error?(m: string, d?: unknown): void }
+) {
   const runs = new Map<string, Run>();
   const results = new Map<string, ActionResult>();
   const cooldowns = new Map<number, number>();
@@ -34,8 +44,9 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
     run.stoppedTick = tick;
     run.controller.abort();
     run.releaseAtTick = tick + 1;
-    try { run.adapter.cancel(); }
-    catch (error) {
+    try {
+      run.adapter.cancel();
+    } catch (error) {
       run.status = 'FAULTED';
       fault = String(error);
       logger?.error?.(`[executor] action ${run.request.actionType} cancel error: ${error}`);
@@ -50,17 +61,24 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
     try {
       const value = call();
       if (value instanceof Promise) {
-        value.then(outcome => {
-          if (!run.ctx.isActive()) return;
-          queueResult(run, outcome);
-        }, error => {
-          if (!run.ctx.isActive()) return;
-          logger?.error?.(`[executor] action ${run.request.actionType} async error: ${error?.stack ?? error}`);
-          queueResult(run, { status: 'FAILURE', reason: String(error) });
-        });
+        value.then(
+          outcome => {
+            if (!run.ctx.isActive()) return;
+            queueResult(run, outcome);
+          },
+          error => {
+            if (!run.ctx.isActive()) return;
+            logger?.error?.(
+              `[executor] action ${run.request.actionType} async error: ${error?.stack ?? error}`
+            );
+            queueResult(run, { status: 'FAILURE', reason: String(error) });
+          }
+        );
       } else queueResult(run, value);
     } catch (error: any) {
-      logger?.error?.(`[executor] action ${run.request.actionType} error: ${error?.stack ?? error}`);
+      logger?.error?.(
+        `[executor] action ${run.request.actionType} error: ${error?.stack ?? error}`
+      );
       queueResult(run, { status: 'FAILURE', reason: String(error) });
     }
   }
@@ -72,7 +90,8 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
       if (fault) return;
       for (const request of requests) {
         const existing = runs.get(request.runId);
-        if (existing && JSON.stringify(existing.request) !== JSON.stringify(request)) throw new Error('A run cannot change its resource or target contract');
+        if (existing && JSON.stringify(existing.request) !== JSON.stringify(request))
+          throw new Error('A run cannot change its resource or target contract');
       }
       const requestedIds = new Set(requests.map(request => request.runId));
       for (const id of results.keys()) if (!requestedIds.has(id)) results.delete(id);
@@ -84,17 +103,22 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
         if (generation !== roundGeneration || fault) return;
         const existing = runs.get(request.runId);
         if (existing) {
-          if (existing.ctx.isActive() && !existing.completionQueued && existing.adapter.update) perform(existing, () => existing.adapter.update!(existing.ctx));
+          if (existing.ctx.isActive() && !existing.completionQueued && existing.adapter.update)
+            perform(existing, () => existing.adapter.update!(existing.ctx));
           continue;
         }
         if (results.has(request.runId)) continue;
         const factory = adapters[request.actionType];
-        if (!factory) { results.set(request.runId, { status: 'FAILURE', reason: 'Action is not implemented' }); continue; }
+        if (!factory) {
+          results.set(request.runId, { status: 'FAILURE', reason: 'Action is not implemented' });
+          continue;
+        }
         const nextToken = ++token;
         if (!arbiter.acquire(request, nextToken)) continue;
         let adapter: ActionAdapter;
-        try { adapter = factory(request); }
-        catch (error) {
+        try {
+          adapter = factory(request);
+        } catch (error) {
           arbiter.release(request.runId, nextToken);
           results.set(request.runId, { status: 'FAILURE', reason: String(error) });
           continue;
@@ -102,11 +126,24 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
         const controller = new AbortController();
         const runGeneration = generation;
         const run: Run = {
-          request: structuredClone(request), token: nextToken, status: 'RUNNING', startedAt: now, releaseAtTick: Infinity,
-          controller, adapter, completionQueued: false,
+          request: structuredClone(request),
+          token: nextToken,
+          status: 'RUNNING',
+          startedAt: now,
+          releaseAtTick: Infinity,
+          controller,
+          adapter,
+          completionQueued: false,
           ctx: {
-            request, token: nextToken, generation: runGeneration, signal: controller.signal,
-            isActive: () => generation === runGeneration && runs.get(request.runId) === run && run.status === 'RUNNING' && run.token === nextToken,
+            request,
+            token: nextToken,
+            generation: runGeneration,
+            signal: controller.signal,
+            isActive: () =>
+              generation === runGeneration &&
+              runs.get(request.runId) === run &&
+              run.status === 'RUNNING' &&
+              run.token === nextToken,
             getSnapshot: () => latestSnapshot,
           },
         };
@@ -135,7 +172,7 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
               released = true;
             } else {
               const elapsedTicks = tick - (run.stoppedTick ?? tick);
-              const elapsedMs = now && run.stoppedAt ? (now - run.stoppedAt) : (elapsedTicks * 50);
+              const elapsedMs = now && run.stoppedAt ? now - run.stoppedAt : elapsedTicks * 50;
               if (elapsedTicks >= 20 || elapsedMs >= 1000) {
                 run.status = 'FAULTED';
                 fault = `Action ${run.request.actionType} cancellation confirmation timed out after 1000ms`;
@@ -158,7 +195,11 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
         if (!run.ctx.isActive()) continue;
         stop(run, now);
         results.set(run.request.runId, result);
-        if (result.status === 'FAILURE' && run.request.actionType === 'PickupItem' && run.request.targetId !== null) {
+        if (
+          result.status === 'FAILURE' &&
+          run.request.actionType === 'PickupItem' &&
+          run.request.targetId !== null
+        ) {
           cooldowns.set(run.request.targetId, now + THRESHOLDS.failureCooldownMs);
         }
       }
@@ -166,9 +207,14 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
     },
     runtime(): RuntimeState {
       const runtime = emptyRuntime();
-      for (const [id, run] of runs) runtime.activeRuns[id] = {
-        runId: id, actionType: run.request.actionType, targetId: run.request.targetId, startedAt: run.startedAt, status: run.status,
-      };
+      for (const [id, run] of runs)
+        runtime.activeRuns[id] = {
+          runId: id,
+          actionType: run.request.actionType,
+          targetId: run.request.targetId,
+          startedAt: run.startedAt,
+          status: run.status,
+        };
       runtime.results = Object.fromEntries(results);
       runtime.cooldowns = Object.fromEntries(cooldowns);
       runtime.lockedResources = arbiter.owners();
@@ -177,8 +223,12 @@ export function createExecutor(arbiter: Arbiter, adapters: AdapterRegistry, logg
     reset() {
       generation++;
       for (const run of runs.values()) stop(run);
-      runs.clear(); results.clear(); cooldowns.clear(); completions = [];
-      arbiter.clear(); fault = null;
+      runs.clear();
+      results.clear();
+      cooldowns.clear();
+      completions = [];
+      arbiter.clear();
+      fault = null;
     },
     generation: () => generation,
     fault: () => fault,

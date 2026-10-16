@@ -26,7 +26,10 @@ export function shouldExitRetreat(s: BlackboardSnapshot, available: ReadonlySet<
   }
 
   // If health has recovered to safe level (>= 10) and no longer swarmed (< 3 mobs), can exit
-  if (s.world.self.health >= THRESHOLDS.emergencyHealth && threatsInRange.length < THRESHOLDS.retreatMobCount) {
+  if (
+    s.world.self.health >= THRESHOLDS.emergencyHealth &&
+    threatsInRange.length < THRESHOLDS.retreatMobCount
+  ) {
     return true;
   }
 

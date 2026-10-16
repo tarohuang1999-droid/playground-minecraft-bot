@@ -160,7 +160,12 @@ export const HOSTILE_MOBS: ReadonlySet<string> = new Set([
   'ender_dragon',
 ]);
 
-export function isHostileMob(entity: { name?: string; username?: string; type?: string; displayName?: string }): boolean {
+export function isHostileMob(entity: {
+  name?: string;
+  username?: string;
+  type?: string;
+  displayName?: string;
+}): boolean {
   if (!entity) return false;
   // [RULE-08] Never attack players or master
   if (entity.type === 'player' || entity.username) return false;
@@ -199,12 +204,18 @@ export interface PerceptionOptions {
   storagePath?: string | undefined;
 }
 
-export function createPerception(bot: PerceptionSource, owner?: string, options: PerceptionOptions = {}) {
+export function createPerception(
+  bot: PerceptionSource,
+  owner?: string,
+  options: PerceptionOptions = {}
+) {
   let lastHealth = bot.health;
   let lastDamageTime = 0;
   const dynamicThreats = new Map<number, DynamicHostileTarget>();
 
-  const initialSaved = options.storagePath ? loadPersistentState(options.storagePath) : { base: null, spawnPoint: null };
+  const initialSaved = options.storagePath
+    ? loadPersistentState(options.storagePath)
+    : { base: null, spawnPoint: null };
   let currentBase: Position | null = initialSaved.base;
   let currentSpawnPoint: Position | null = initialSaved.spawnPoint;
   let bedNeedsRefresh = false;
@@ -212,7 +223,10 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
 
   const persist = () => {
     if (options.storagePath) {
-      savePersistentState({ base: currentBase, spawnPoint: currentSpawnPoint }, options.storagePath);
+      savePersistentState(
+        { base: currentBase, spawnPoint: currentSpawnPoint },
+        options.storagePath
+      );
     }
   };
 
@@ -220,7 +234,11 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
 
   return {
     setBase(pos: Position) {
-      currentBase = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
+      currentBase = {
+        x: Math.round(pos.x * 10) / 10,
+        y: Math.round(pos.y * 10) / 10,
+        z: Math.round(pos.z * 10) / 10,
+      };
       bedNeedsRefresh = true;
       bedCooldownUntil = 0;
       persist();
@@ -231,7 +249,11 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
     },
 
     setSpawnPoint(pos: Position) {
-      currentSpawnPoint = { x: Math.round(pos.x * 10) / 10, y: Math.round(pos.y * 10) / 10, z: Math.round(pos.z * 10) / 10 };
+      currentSpawnPoint = {
+        x: Math.round(pos.x * 10) / 10,
+        y: Math.round(pos.y * 10) / 10,
+        z: Math.round(pos.z * 10) / 10,
+      };
       bedNeedsRefresh = false;
       persist();
     },
@@ -297,8 +319,14 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
         lastDamageTime = now;
       }
       lastHealth = bot.health;
-      const tookDamageRecently = (now - lastDamageTime) < 2000;
-      world.self = { position: position(origin), health: bot.health, food: bot.food, isAlive: bot.health > 0, tookDamageRecently };
+      const tookDamageRecently = now - lastDamageTime < 2000;
+      world.self = {
+        position: position(origin),
+        health: bot.health,
+        food: bot.food,
+        isAlive: bot.health > 0,
+        tookDamageRecently,
+      };
       world.base = currentBase ? { ...currentBase } : null;
       world.spawnPoint = currentSpawnPoint ? { ...currentSpawnPoint } : null;
       world.bedNeedsRefresh = bedNeedsRefresh;
@@ -309,7 +337,7 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
       // [註解] 原先 idle 自動找床：const shouldSearchBed = hasOwner ? (currentBase !== null) : true;
       // [註解] 原先判斷：if (shouldSearchBed && bedCooldownUntil <= now && (currentSpawnPoint === null || bedNeedsRefresh)) {
       // 改為：有主人時僅在 set base 標記 bedNeedsRefresh 時才觸發；無主人時維持 currentSpawnPoint === null 自動找床
-      const shouldSearchBed = hasOwner ? bedNeedsRefresh : (currentSpawnPoint === null);
+      const shouldSearchBed = hasOwner ? bedNeedsRefresh : currentSpawnPoint === null;
 
       if (shouldSearchBed && bedCooldownUntil <= now) {
         const centerPos = currentBase ?? origin;
@@ -345,20 +373,35 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
 
       if (owner && owner.trim().length > 0) {
         let master = bot.players[owner]?.entity;
-        const matchKey = Object.keys(bot.players).find(k => k.toLowerCase() === owner.toLowerCase());
+        const matchKey = Object.keys(bot.players).find(
+          k => k.toLowerCase() === owner.toLowerCase()
+        );
         if (!master && matchKey) master = bot.players[matchKey]?.entity;
         if (!master && (bot.players[owner] || matchKey) && bot.entities) {
-          const matchEntity = Object.values(bot.entities).find(e => (e.username ?? e.name ?? '').toLowerCase() === owner.toLowerCase());
+          const matchEntity = Object.values(bot.entities).find(
+            e => (e.username ?? e.name ?? '').toLowerCase() === owner.toLowerCase()
+          );
           if (matchEntity) master = matchEntity;
         }
-        if (master) world.master = { username: owner, entityId: master.id, position: position(master.position), distance: distance(origin, master.position) };
+        if (master)
+          world.master = {
+            username: owner,
+            entityId: master.id,
+            position: position(master.position),
+            distance: distance(origin, master.position),
+          };
       }
       for (const entity of Object.values(bot.entities)) {
         if (!entity?.position) continue;
         if (entity.id === bot.entity.id) continue;
         const range = distance(origin, entity.position);
         if (range > THRESHOLDS.observationRadius) continue;
-        world.entities.push({ entityId: entity.id, name: entity.name ?? entity.username ?? 'unknown', position: position(entity.position), distance: range });
+        world.entities.push({
+          entityId: entity.id,
+          name: entity.name ?? entity.username ?? 'unknown',
+          position: position(entity.position),
+          distance: range,
+        });
 
         const isDynamic = dynamicThreats.has(entity.id);
         if (isHostileMob(entity as any) || isDynamic) {
@@ -368,18 +411,23 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
           if (isValid && isAlive && range <= THRESHOLDS.combatExit) {
             world.threats.push({
               entityId: entity.id,
-              name: entity.name ?? entity.displayName ?? (isDynamic ? (entity.username ?? 'player') : 'hostile'),
+              name:
+                entity.name ??
+                entity.displayName ??
+                (isDynamic ? (entity.username ?? 'player') : 'hostile'),
               position: position(entity.position),
               distance: range,
             });
           }
         }
 
-        const isItem = entity.name === 'item' || entity.name === 'Item' || entity.name === 'item_stack';
+        const isItem =
+          entity.name === 'item' || entity.name === 'Item' || entity.name === 'item_stack';
         if (isItem && range <= THRESHOLDS.pickupRadius) {
           const cooldownUntil = cooldowns?.[entity.id];
           if (cooldownUntil && cooldownUntil > now) continue;
-          const itemName = entity.getDroppedItem?.()?.name ?? entity.displayName ?? entity.name ?? 'item';
+          const itemName =
+            entity.getDroppedItem?.()?.name ?? entity.displayName ?? entity.name ?? 'item';
           world.nearbyDrops.push({
             entityId: entity.id,
             name: entity.name ?? 'item',
@@ -412,7 +460,9 @@ export function createPerception(bot: PerceptionSource, owner?: string, options:
       // 2. Armor upgrades:
       let pendingArmorUpgrade: { itemId: number; slot: ArmorSlot } | null = null;
       let highestUpgradeDiff = 0;
-      for (const [slotKey, slotIndex] of Object.entries(ARMOR_SLOTS) as Array<[ArmorSlot, number]>) {
+      for (const [slotKey, slotIndex] of Object.entries(ARMOR_SLOTS) as Array<
+        [ArmorSlot, number]
+      >) {
         const equipped = slots[slotIndex];
         const equippedTier = equipped ? (getArmorInfo(equipped.name)?.tier ?? 0) : 0;
         for (const item of items) {

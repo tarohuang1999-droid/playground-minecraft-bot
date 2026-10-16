@@ -2,7 +2,10 @@ import type { BlackboardSnapshot, ObservedEntity } from '../../blackboard.ts';
 import { THRESHOLDS } from '../../policy.ts';
 import { action, guard } from '../nodes.ts';
 
-export function getCombatTarget(s: BlackboardSnapshot, available: ReadonlySet<string>): ObservedEntity | null {
+export function getCombatTarget(
+  s: BlackboardSnapshot,
+  available: ReadonlySet<string>
+): ObservedEntity | null {
   if (!available.has('Combat') || !s.world.self.isAlive) return null;
 
   // If in FOLLOW mode and master distance > combatMasterLimit, disengage combat

@@ -10,7 +10,8 @@ export function createChat(send: (message: string) => void) {
     start(ctx) {
       if (!ctx.isActive()) return;
       const head = queue[0];
-      if (!head || head.id !== request.params.messageId) return { status: 'FAILURE', reason: 'Message withdrawn' };
+      if (!head || head.id !== request.params.messageId)
+        return { status: 'FAILURE', reason: 'Message withdrawn' };
       const now = ctx.getSnapshot().observedAt;
       if (now < nextSendAt) return { status: 'FAILURE', reason: 'Rate limited' };
       queue.shift();
@@ -30,9 +31,20 @@ export function createChat(send: (message: string) => void) {
     requests(snapshot: BlackboardSnapshot): ActionRequest[] {
       const head = queue[0];
       if (!head || snapshot.observedAt < nextSendAt) return [];
-      return [{ nodeId: 'voice', runId: `${snapshot.generation}:voice:${head.id}`, actionType: 'Chat', targetId: null,
-        ...ACTION_POLICY.Chat, params: { messageId: head.id } }];
+      return [
+        {
+          nodeId: 'voice',
+          runId: `${snapshot.generation}:voice:${head.id}`,
+          actionType: 'Chat',
+          targetId: null,
+          ...ACTION_POLICY.Chat,
+          params: { messageId: head.id },
+        },
+      ];
     },
-    reset() { queue = []; nextSendAt = 0; },
+    reset() {
+      queue = [];
+      nextSendAt = 0;
+    },
   };
 }

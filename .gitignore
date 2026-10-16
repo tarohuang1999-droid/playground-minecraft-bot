@@ -13,3 +13,4 @@ docs/references
 .env
 logs/
 data/
+.pnpm-store/

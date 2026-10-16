@@ -2,7 +2,13 @@ import { goals, Movements } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
 import { navigationConfig } from '../config/index.ts';
-import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
+import type {
+  ActionAdapter,
+  ActionContext,
+  ActionRequest,
+  ActionResult,
+  AdapterFactory,
+} from '../execution/types.ts';
 import {
   DIG_WHITELIST,
   PLACE_WHITELIST,
@@ -39,7 +45,10 @@ export interface NavigationBot {
     setMovements?(movements: unknown): void;
     isMoving?(): boolean;
   };
-  setControlState?(control: 'forward' | 'back' | 'left' | 'right' | 'jump' | 'sprint' | 'sneak', state: boolean): void;
+  setControlState?(
+    control: 'forward' | 'back' | 'left' | 'right' | 'jump' | 'sprint' | 'sneak',
+    state: boolean
+  ): void;
   blockAt?(pos: any): any;
   activateBlock?(block: any): Promise<void>;
   entities: Record<string | number, NavigationEntity>;
@@ -66,12 +75,16 @@ export function safeBlockAt(bot: NavigationBot, pos: { x: number; y: number; z: 
 export function isDoorBlock(block: any): boolean {
   if (!block || !block.name) return false;
   const name = block.name.toLowerCase();
-  return (name.includes('door') || name.includes('gate') || name.includes('trapdoor')) && !name.includes('iron');
+  return (
+    (name.includes('door') || name.includes('gate') || name.includes('trapdoor')) &&
+    !name.includes('iron')
+  );
 }
 
 export function isDoorOpen(block: any): boolean {
   if (!block) return false;
-  const props = block._properties || (typeof block.getProperties === 'function' ? block.getProperties() : {});
+  const props =
+    block._properties || (typeof block.getProperties === 'function' ? block.getProperties() : {});
   return props.open === true || props.open === 'true';
 }
 
@@ -81,13 +94,21 @@ export function isPassable(block: any): boolean {
   if (!Array.isArray(block.shapes) || block.shapes.length === 0) return true;
   if (isDoorBlock(block) && isDoorOpen(block)) return true;
   const name = block.name ? block.name.toLowerCase() : '';
-  if (name.includes('torch') || name.includes('sign') || name.includes('ladder') || name.includes('vine')) {
+  if (
+    name.includes('torch') ||
+    name.includes('sign') ||
+    name.includes('ladder') ||
+    name.includes('vine')
+  ) {
     return true;
   }
   return false;
 }
 
-export function getBlockTopY(block: any, fallbackPos?: { x: number; y: number; z: number }): number | null {
+export function getBlockTopY(
+  block: any,
+  fallbackPos?: { x: number; y: number; z: number }
+): number | null {
   if (!block) return null;
   const posY = block.position?.y ?? fallbackPos?.y;
   if (typeof posY !== 'number') return null;
@@ -152,10 +173,12 @@ export function sanitizeDoorWaypoints(bot: NavigationBot, path: any[]): void {
 
     if (isDoorBlock(bDirect) && isDoorBlock(bBelow)) {
       doorBlock = bBelow;
-      groundY = bBelow.position?.y ?? (fy - 1);
+      groundY = bBelow.position?.y ?? fy - 1;
     } else if (isDoorBlock(bDirect)) {
       doorBlock = bDirect;
-      const props = doorBlock._properties || (typeof doorBlock.getProperties === 'function' ? doorBlock.getProperties() : {});
+      const props =
+        doorBlock._properties ||
+        (typeof doorBlock.getProperties === 'function' ? doorBlock.getProperties() : {});
       if (props.half === 'upper') {
         groundY = (doorBlock.position?.y ?? fy) - 1;
       } else {
@@ -163,11 +186,13 @@ export function sanitizeDoorWaypoints(bot: NavigationBot, path: any[]): void {
       }
     } else if (isDoorBlock(bBelow)) {
       doorBlock = bBelow;
-      const props = doorBlock._properties || (typeof doorBlock.getProperties === 'function' ? doorBlock.getProperties() : {});
+      const props =
+        doorBlock._properties ||
+        (typeof doorBlock.getProperties === 'function' ? doorBlock.getProperties() : {});
       if (props.half === 'upper') {
-        groundY = (doorBlock.position?.y ?? (fy - 1)) - 1;
+        groundY = (doorBlock.position?.y ?? fy - 1) - 1;
       } else {
-        groundY = doorBlock.position?.y ?? (fy - 1);
+        groundY = doorBlock.position?.y ?? fy - 1;
       }
     }
 
@@ -211,7 +236,10 @@ export class DoorManager {
     // 2. If collided horizontally, also check adjacent cardinal neighbors that are roughly in front
     if (bot.entity.isCollidedHorizontally) {
       const neighbors = [
-        { dx: 1, dz: 0 }, { dx: -1, dz: 0 }, { dx: 0, dz: 1 }, { dx: 0, dz: -1 },
+        { dx: 1, dz: 0 },
+        { dx: -1, dz: 0 },
+        { dx: 0, dz: 1 },
+        { dx: 0, dz: -1 },
       ];
       for (const n of neighbors) {
         const dot = n.dx * fx + n.dz * fz;
@@ -230,9 +258,14 @@ export class DoorManager {
           continue;
         }
 
-        const props = block._properties || (typeof block.getProperties === 'function' ? block.getProperties() : {});
+        const props =
+          block._properties ||
+          (typeof block.getProperties === 'function' ? block.getProperties() : {});
         const isUpper = props.half === 'upper';
-        const rootY = isUpper && block.position ? block.position.y - 1 : (block.position?.y ?? Math.floor(pt.y));
+        const rootY =
+          isUpper && block.position
+            ? block.position.y - 1
+            : (block.position?.y ?? Math.floor(pt.y));
         const rootX = block.position?.x ?? Math.floor(pt.x);
         const rootZ = block.position?.z ?? Math.floor(pt.z);
         const doorKey = `${rootX},${rootY},${rootZ}`;
@@ -251,7 +284,11 @@ export class DoorManager {
           // Prefer activating the lower block if upper half was detected
           let targetBlock = block;
           if (isUpper && block.position) {
-            const lower = safeBlockAt(bot, { x: block.position.x, y: block.position.y - 1, z: block.position.z });
+            const lower = safeBlockAt(bot, {
+              x: block.position.x,
+              y: block.position.y - 1,
+              z: block.position.z,
+            });
             if (lower && isDoorBlock(lower)) targetBlock = lower;
           }
 
@@ -295,7 +332,8 @@ export function isClimbingLadder(bot: NavigationBot): boolean {
   if (typeof bot.blockAt !== 'function' || !bot.entity?.position) return false;
   const pos = bot.entity.position;
   const current = safeBlockAt(bot, pos);
-  if (current?.name && (current.name.includes('ladder') || current.name.includes('vine'))) return true;
+  if (current?.name && (current.name.includes('ladder') || current.name.includes('vine')))
+    return true;
   const below = safeBlockAt(bot, { x: pos.x, y: pos.y - 0.5, z: pos.z });
   if (below?.name && (below.name.includes('ladder') || below.name.includes('vine'))) return true;
   return false;
@@ -317,7 +355,11 @@ export function shouldJumpObstacle(bot: NavigationBot): boolean {
   // Doors are handled by tryOpenDoorInFront, not jumping
   if (isDoorBlock(frontBlock)) return false;
 
-  const topY = getBlockTopY(frontBlock, { x: pos.x + dx, y: Math.floor(pos.y + 0.1), z: pos.z + dz });
+  const topY = getBlockTopY(frontBlock, {
+    x: pos.x + dx,
+    y: Math.floor(pos.y + 0.1),
+    z: pos.z + dz,
+  });
   if (topY === null) return false;
 
   const heightDiff = topY - pos.y;
@@ -356,10 +398,10 @@ export function setupMovements(
     const allowBridge = options?.allowBridge ?? false;
 
     movements.canDig = canDig;
-    movements.allowParkour = true;      // Jump over 1-block gaps
-    movements.allowSprinting = false;   // Prevent sprint-simulation jump suppression bug
-    movements.canOpenDoors = false;     // Keep false in pathfinder! Our DoorManager handles opening doors cleanly without pathfinder's useOne bug
-    movements.allow1by1towers = false;  // Do not place scaffolding blocks under self
+    movements.allowParkour = true; // Jump over 1-block gaps
+    movements.allowSprinting = false; // Prevent sprint-simulation jump suppression bug
+    movements.canOpenDoors = false; // Keep false in pathfinder! Our DoorManager handles opening doors cleanly without pathfinder's useOne bug
+    movements.allow1by1towers = false; // Do not place scaffolding blocks under self
 
     const registry = bot.registry as any;
     if (registry?.blocksByName?.vine) {
@@ -426,16 +468,18 @@ export function setupMovements(
       const bB1 = this.getBlock(node, 0, y + 1, dir.z);
       const bC1 = this.getBlock(node, 0, y, dir.z);
       if (isDoorBlock(bB1) || isDoorBlock(bC1)) return;
-      const blocked1 = (!bB1.safe && (!this.canDig || !this.safeToBreak(bB1))) ||
-                       (!bC1.safe && (!this.canDig || !this.safeToBreak(bC1)));
+      const blocked1 =
+        (!bB1.safe && (!this.canDig || !this.safeToBreak(bB1))) ||
+        (!bC1.safe && (!this.canDig || !this.safeToBreak(bC1)));
       if (blocked1) return;
 
       // Side 2: (dir.x, y, 0)
       const bB2 = this.getBlock(node, dir.x, y + 1, 0);
       const bC2 = this.getBlock(node, dir.x, y, 0);
       if (isDoorBlock(bB2) || isDoorBlock(bC2)) return;
-      const blocked2 = (!bB2.safe && (!this.canDig || !this.safeToBreak(bB2))) ||
-                       (!bC2.safe && (!this.canDig || !this.safeToBreak(bC2)));
+      const blocked2 =
+        (!bB2.safe && (!this.canDig || !this.safeToBreak(bB2))) ||
+        (!bC2.safe && (!this.canDig || !this.safeToBreak(bC2)));
       if (blocked2) return;
 
       return origGetMoveDiagonal.call(this, node, dir, neighbors);
@@ -485,13 +529,21 @@ export function setupMovements(
   }
 }
 
-function resolveTarget(bot: NavigationBot, targetId: number | null, owner: string): NavigationEntity | null {
+function resolveTarget(
+  bot: NavigationBot,
+  targetId: number | null,
+  owner: string
+): NavigationEntity | null {
   if (targetId !== null && (bot.entities as any)[targetId]) {
     return (bot.entities as any)[targetId];
   }
-  const playerObj = Object.values(bot.players).find(p => (p as any).username?.toLowerCase() === owner.toLowerCase());
+  const playerObj = Object.values(bot.players).find(
+    p => (p as any).username?.toLowerCase() === owner.toLowerCase()
+  );
   if (playerObj?.entity) return playerObj.entity;
-  const entityObj = Object.values(bot.entities).find(e => ((e as any).username ?? (e as any).name ?? '').toLowerCase() === owner.toLowerCase());
+  const entityObj = Object.values(bot.entities).find(
+    e => ((e as any).username ?? (e as any).name ?? '').toLowerCase() === owner.toLowerCase()
+  );
   if (entityObj) return entityObj;
   return null;
 }
@@ -600,7 +652,10 @@ export function findSafestEscapePosition(
       }
 
       // Prioritize fewest threats in the area; break ties with maximum distance to closest threat
-      if (threatCount < lowestThreatCount || (threatCount === lowestThreatCount && minThreatDist > maxMinDistance)) {
+      if (
+        threatCount < lowestThreatCount ||
+        (threatCount === lowestThreatCount && minThreatDist > maxMinDistance)
+      ) {
         lowestThreatCount = threatCount;
         maxMinDistance = minThreatDist;
         bestCandidate = { x: cx, y: cy, z: cz };
@@ -637,7 +692,11 @@ export interface NavigationCallbacks {
   clock?: { now(): number };
 }
 
-export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, callbacks?: NavigationCallbacks) {
+export function createNavigation(
+  bot: NavigationBot,
+  logger?: NavigationLogger,
+  callbacks?: NavigationCallbacks
+) {
   const doorManager = new DoorManager();
   const boundary = new NavigationExecutionBoundary();
   boundary.install(bot);
@@ -687,16 +746,21 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           const snapshot = ctx.getSnapshot();
           const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
           if (!target) {
-            logger?.warn('[navigation] target not visible for owner: ' + snapshot.world.master.username);
+            logger?.warn(
+              '[navigation] target not visible for owner: ' + snapshot.world.master.username
+            );
             bot.pathfinder.setGoal(null);
             return { status: 'FAILURE', reason: 'Target not visible' };
           }
           attachTaskContext(request, ctx);
-          logger?.info(`[navigation] GoalFollow started towards ${snapshot.world.master.username}`, {
-            range,
-            distance: snapshot.world.master.distance,
-            targetPos: target.position,
-          });
+          logger?.info(
+            `[navigation] GoalFollow started towards ${snapshot.world.master.username}`,
+            {
+              range,
+              distance: snapshot.world.master.distance,
+              targetPos: target.position,
+            }
+          );
 
           lastProgressTime = getTime();
           if (bot.entity?.position) {
@@ -727,7 +791,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           // Exit only when close in 3D space (within exitDistance) AND height-aligned (|dy| <= 1.2)
           if (dist3D <= exitDistance && vertDist <= 1.2) {
-            logger?.info(`[navigation] reached target (distance ${dist3D.toFixed(1)} <= ${exitDistance}, dy=${dy.toFixed(1)})`);
+            logger?.info(
+              `[navigation] reached target (distance ${dist3D.toFixed(1)} <= ${exitDistance}, dy=${dy.toFixed(1)})`
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'SUCCESS' };
@@ -735,7 +801,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           // Progress & Stall Detection
           if (selfPos && lastPos) {
-            const mdist = Math.hypot(selfPos.x - lastPos.x, selfPos.y - lastPos.y, selfPos.z - lastPos.z);
+            const mdist = Math.hypot(
+              selfPos.x - lastPos.x,
+              selfPos.y - lastPos.y,
+              selfPos.z - lastPos.z
+            );
             if (mdist >= 0.15) {
               lastPos = { ...selfPos };
               lastProgressTime = now;
@@ -752,11 +822,20 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > navigationConfig.stallThresholdMs && !isMoving && !doorManager.isInFlight()) {
-            logger?.warn('[navigation] GoalFollow path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
+          if (
+            now - lastProgressTime > navigationConfig.stallThresholdMs &&
+            !isMoving &&
+            !doorManager.isInFlight()
+          ) {
+            logger?.warn(
+              '[navigation] GoalFollow path obstructed or stalled (> 1500ms); reporting failure to BT recovery'
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
-            callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
+            callbacks?.onNavigationFailed?.(
+              'Path obstructed or stalled',
+              currentTaskState?.missionId ?? ''
+            );
             return { status: 'FAILURE', reason: 'Path obstructed or stalled' };
           }
 
@@ -774,7 +853,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             if (shouldJumpObstacle(bot)) {
               bot.setControlState?.('jump', true);
               isJumping = true;
-            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            } else if (
+              isJumping &&
+              (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)
+            ) {
               bot.setControlState?.('jump', false);
               isJumping = false;
             }
@@ -785,7 +867,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           activeGoal = null;
           boundary.setActiveContext(null);
           if (typeof (bot as any).stopDigging === 'function') {
-            try { (bot as any).stopDigging(); } catch {}
+            try {
+              (bot as any).stopDigging();
+            } catch {}
           }
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
@@ -862,7 +946,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             lastProgressTime = now;
             if (now - lastRepathTime > 500) {
               lastRepathTime = now;
-              activeGoal = new GoalNear(target.position.x, target.position.y, target.position.z, 0.8);
+              activeGoal = new GoalNear(
+                target.position.x,
+                target.position.y,
+                target.position.z,
+                0.8
+              );
               bot.pathfinder?.setGoal(activeGoal, false);
             }
           }
@@ -876,7 +965,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             if (shouldJumpObstacle(bot)) {
               bot.setControlState?.('jump', true);
               isJumping = true;
-            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            } else if (
+              isJumping &&
+              (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)
+            ) {
               bot.setControlState?.('jump', false);
               isJumping = false;
             }
@@ -899,9 +991,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > navigationConfig.stallThresholdMs;
+          const progressStalled = now - lastProgressTime > navigationConfig.stallThresholdMs;
           if (progressStalled && !isMoving) {
-            logger?.warn(`[navigation] PickupItem path obstructed or idle for entity ${targetEntityId}`);
+            logger?.warn(
+              `[navigation] PickupItem path obstructed or idle for entity ${targetEntityId}`
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'FAILURE', reason: 'Unreachable item drop' };
@@ -953,7 +1047,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           targetPos = findSafestEscapePosition(bot, threats, origin);
           lastAngle = Math.atan2(targetPos.z - origin.z, targetPos.x - origin.x);
-          logger?.info(`[navigation] Retreat started towards safest position (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+          logger?.info(
+            `[navigation] Retreat started towards safest position (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+          );
 
           setupMovements(bot, logger, { canDig: false, allowBridge: false });
           boundary.setActiveContext(null);
@@ -1005,21 +1101,25 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > 1200;
-          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 800;
+          const progressStalled = now - lastProgressTime > 1200;
+          const pathfinderIdle = !isMoving && now - lastProgressTime > 800;
 
           // Fail-safe: if stuck/stalled for > 3.5 seconds, bot is trapped in a corner or boxed in!
           // Abort retreat so Combat can take over and defend against the attacking mobs!
           if (now - lastProgressTime > 3500) {
-            logger?.warn('[navigation] Retreat path trapped or stalled for > 3.5s, aborting retreat so bot can defend');
+            logger?.warn(
+              '[navigation] Retreat path trapped or stalled for > 3.5s, aborting retreat so bot can defend'
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'FAILURE', reason: 'Retreat path trapped or obstructed' };
           }
 
           // Re-route if path is stalled or idle
-          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1000) {
-            logger?.info('[navigation] retreat path obstructed or idle, re-sampling safe direction...');
+          if ((progressStalled || pathfinderIdle) && now - lastRepathTime > 1000) {
+            logger?.info(
+              '[navigation] retreat path obstructed or idle, re-sampling safe direction...'
+            );
             lastRepathTime = now;
             targetPos = findSafestEscapePosition(bot, threats, currentPos, {
               radius: 8,
@@ -1033,11 +1133,13 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           // If reached current target point but threats are still pursuing (< retreatExit)
           if (targetPos) {
             const distToGoal = Math.hypot(targetPos.x - currentPos.x, targetPos.z - currentPos.z);
-            if (distToGoal <= 2.0 && (now - lastRepathTime) > 800) {
+            if (distToGoal <= 2.0 && now - lastRepathTime > 800) {
               lastRepathTime = now;
               targetPos = findSafestEscapePosition(bot, threats, currentPos);
               lastAngle = Math.atan2(targetPos.z - currentPos.z, targetPos.x - currentPos.x);
-              logger?.info(`[navigation] Re-sampling retreat position to (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+              logger?.info(
+                `[navigation] Re-sampling retreat position to (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+              );
               activeGoal = new GoalNearXZ(targetPos.x, targetPos.z, 2.0);
               bot.pathfinder?.setGoal(activeGoal);
             }
@@ -1076,9 +1178,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
           }
           const snapshot = ctx.getSnapshot();
-          const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-            ? { x: request.params.x, y: request.params.y, z: request.params.z }
-            : snapshot.intent.targetPosition;
+          const target =
+            typeof request.params.x === 'number' &&
+            typeof request.params.y === 'number' &&
+            typeof request.params.z === 'number'
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : snapshot.intent.targetPosition;
           if (!target) {
             logger?.warn('[navigation] ComeOnce target position is missing');
             bot.pathfinder.setGoal(null);
@@ -1086,7 +1191,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           targetPos = { x: target.x, y: target.y, z: target.z };
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
-          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          const dist = Math.hypot(
+            targetPos.x - currentPos.x,
+            targetPos.y - currentPos.y,
+            targetPos.z - currentPos.z
+          );
           if (dist <= 2.5) {
             logger?.info('[navigation] ComeOnce already within 2.5 blocks of target');
             onArrival?.();
@@ -1094,7 +1203,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           attachTaskContext(request, ctx);
-          logger?.info(`[navigation] ComeOnce started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+          logger?.info(
+            `[navigation] ComeOnce started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+          );
           lastProgressTime = getTime();
           if (bot.entity?.position) {
             lastPos = { ...bot.entity.position };
@@ -1108,9 +1219,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           const now = getTime();
           const snapshot = ctx.getSnapshot();
           if (!targetPos) {
-            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-              ? { x: request.params.x, y: request.params.y, z: request.params.z }
-              : snapshot.intent.targetPosition;
+            const target =
+              typeof request.params.x === 'number' &&
+              typeof request.params.y === 'number' &&
+              typeof request.params.z === 'number'
+                ? { x: request.params.x, y: request.params.y, z: request.params.z }
+                : snapshot.intent.targetPosition;
             if (target) targetPos = { x: target.x, y: target.y, z: target.z };
           }
 
@@ -1119,7 +1233,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
-          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          const dist = Math.hypot(
+            targetPos.x - currentPos.x,
+            targetPos.y - currentPos.y,
+            targetPos.z - currentPos.z
+          );
           if (dist <= 2.5) {
             logger?.info('[navigation] ComeOnce arrived at target position');
             bot.pathfinder?.setGoal(null);
@@ -1130,7 +1248,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           // Progress & Stall Detection
           if (currentPos && lastPos) {
-            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            const mdist = Math.hypot(
+              currentPos.x - lastPos.x,
+              currentPos.y - lastPos.y,
+              currentPos.z - lastPos.z
+            );
             if (mdist >= 0.15) {
               lastPos = { ...currentPos };
               lastProgressTime = now;
@@ -1146,11 +1268,20 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > navigationConfig.stallThresholdMs && !isMoving && !doorManager.isInFlight()) {
-            logger?.warn('[navigation] ComeOnce path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
+          if (
+            now - lastProgressTime > navigationConfig.stallThresholdMs &&
+            !isMoving &&
+            !doorManager.isInFlight()
+          ) {
+            logger?.warn(
+              '[navigation] ComeOnce path obstructed or stalled (> 1500ms); reporting failure to BT recovery'
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
-            callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
+            callbacks?.onNavigationFailed?.(
+              'Path obstructed or stalled',
+              currentTaskState?.missionId ?? ''
+            );
             return { status: 'FAILURE', reason: 'Path obstructed or stalled' };
           }
 
@@ -1162,7 +1293,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             if (shouldJumpObstacle(bot)) {
               bot.setControlState?.('jump', true);
               isJumping = true;
-            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            } else if (
+              isJumping &&
+              (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)
+            ) {
               bot.setControlState?.('jump', false);
               isJumping = false;
             }
@@ -1175,7 +1309,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           targetPos = null;
           boundary.setActiveContext(null);
           if (typeof (bot as any).stopDigging === 'function') {
-            try { (bot as any).stopDigging(); } catch {}
+            try {
+              (bot as any).stopDigging();
+            } catch {}
           }
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
@@ -1204,9 +1340,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
           }
           const snapshot = ctx.getSnapshot();
-          const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-            ? { x: request.params.x, y: request.params.y, z: request.params.z }
-            : (snapshot.world.base ?? snapshot.world.spawnPoint);
+          const target =
+            typeof request.params.x === 'number' &&
+            typeof request.params.y === 'number' &&
+            typeof request.params.z === 'number'
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : (snapshot.world.base ?? snapshot.world.spawnPoint);
           if (!target) {
             logger?.warn('[navigation] ReturnToBase destination is missing');
             bot.pathfinder.setGoal(null);
@@ -1214,7 +1353,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           targetPos = { x: target.x, y: target.y, z: target.z };
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
-          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          const dist = Math.hypot(
+            targetPos.x - currentPos.x,
+            targetPos.y - currentPos.y,
+            targetPos.z - currentPos.z
+          );
           if (dist <= 2.5) {
             logger?.info('[navigation] ReturnToBase already within 2.5 blocks of destination');
             onArrival?.();
@@ -1222,7 +1365,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           attachTaskContext(request, ctx);
-          logger?.info(`[navigation] ReturnToBase started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+          logger?.info(
+            `[navigation] ReturnToBase started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+          );
           lastProgressTime = getTime();
           if (bot.entity?.position) {
             lastPos = { ...bot.entity.position };
@@ -1236,9 +1381,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           const now = getTime();
           const snapshot = ctx.getSnapshot();
           if (!targetPos) {
-            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-              ? { x: request.params.x, y: request.params.y, z: request.params.z }
-              : (snapshot.world.base ?? snapshot.world.spawnPoint);
+            const target =
+              typeof request.params.x === 'number' &&
+              typeof request.params.y === 'number' &&
+              typeof request.params.z === 'number'
+                ? { x: request.params.x, y: request.params.y, z: request.params.z }
+                : (snapshot.world.base ?? snapshot.world.spawnPoint);
             if (target) targetPos = { x: target.x, y: target.y, z: target.z };
           }
 
@@ -1247,7 +1395,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
-          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          const dist = Math.hypot(
+            targetPos.x - currentPos.x,
+            targetPos.y - currentPos.y,
+            targetPos.z - currentPos.z
+          );
           if (dist <= 2.5) {
             logger?.info('[navigation] ReturnToBase arrived at destination');
             bot.pathfinder?.setGoal(null);
@@ -1258,7 +1410,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           // Progress & Stall Detection
           if (currentPos && lastPos) {
-            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            const mdist = Math.hypot(
+              currentPos.x - lastPos.x,
+              currentPos.y - lastPos.y,
+              currentPos.z - lastPos.z
+            );
             if (mdist >= 0.15) {
               lastPos = { ...currentPos };
               lastProgressTime = now;
@@ -1274,11 +1430,20 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > navigationConfig.stallThresholdMs && !isMoving && !doorManager.isInFlight()) {
-            logger?.warn('[navigation] ReturnToBase path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
+          if (
+            now - lastProgressTime > navigationConfig.stallThresholdMs &&
+            !isMoving &&
+            !doorManager.isInFlight()
+          ) {
+            logger?.warn(
+              '[navigation] ReturnToBase path obstructed or stalled (> 1500ms); reporting failure to BT recovery'
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
-            callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
+            callbacks?.onNavigationFailed?.(
+              'Path obstructed or stalled',
+              currentTaskState?.missionId ?? ''
+            );
             return { status: 'FAILURE', reason: 'Path obstructed or stalled' };
           }
 
@@ -1290,7 +1455,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             if (shouldJumpObstacle(bot)) {
               bot.setControlState?.('jump', true);
               isJumping = true;
-            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            } else if (
+              isJumping &&
+              (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)
+            ) {
               bot.setControlState?.('jump', false);
               isJumping = false;
             }
@@ -1303,7 +1471,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           targetPos = null;
           boundary.setActiveContext(null);
           if (typeof (bot as any).stopDigging === 'function') {
-            try { (bot as any).stopDigging(); } catch {}
+            try {
+              (bot as any).stopDigging();
+            } catch {}
           }
           bot.setControlState?.('jump', false);
           bot.pathfinder?.setGoal(null);
@@ -1316,7 +1486,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     };
   }
 
-  function setSpawnAdapter(onSpawnSet?: (pos: any) => void, onSpawnFailed?: () => void): AdapterFactory {
+  function setSpawnAdapter(
+    onSpawnSet?: (pos: any) => void,
+    onSpawnFailed?: () => void
+  ): AdapterFactory {
     return (request: ActionRequest): ActionAdapter => {
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
@@ -1334,9 +1507,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
           }
           const snapshot = ctx.getSnapshot();
-          const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-            ? { x: request.params.x, y: request.params.y, z: request.params.z }
-            : snapshot.world.nearbyBed;
+          const target =
+            typeof request.params.x === 'number' &&
+            typeof request.params.y === 'number' &&
+            typeof request.params.z === 'number'
+              ? { x: request.params.x, y: request.params.y, z: request.params.z }
+              : snapshot.world.nearbyBed;
           if (!target) {
             logger?.warn('[navigation] SetSpawn bed target is missing');
             bot.pathfinder.setGoal(null);
@@ -1353,7 +1529,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           boundary.setActiveContext(null);
 
           const currentPos = bot.entity?.position ?? snapshot.world.self.position;
-          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          const dist = Math.hypot(
+            targetPos.x - currentPos.x,
+            targetPos.y - currentPos.y,
+            targetPos.z - currentPos.z
+          );
           if (dist <= 2.5) {
             const bedBlock = safeBlockAt(bot, targetPos);
             if (bedBlock && typeof bot.activateBlock === 'function') {
@@ -1361,12 +1541,16 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
                 logger?.warn('[navigation] activateBlock error: ' + err);
               });
             }
-            logger?.info(`[navigation] SetSpawn arrived at bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+            logger?.info(
+              `[navigation] SetSpawn arrived at bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+            );
             onSpawnSet?.(targetPos);
             return { status: 'SUCCESS' };
           }
 
-          logger?.info(`[navigation] SetSpawn started towards bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+          logger?.info(
+            `[navigation] SetSpawn started towards bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+          );
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
           bot.pathfinder.setGoal(activeGoal, false);
         },
@@ -1384,9 +1568,12 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           if (!targetPos) {
             const snapshot = ctx.getSnapshot();
-            const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
-              ? { x: request.params.x, y: request.params.y, z: request.params.z }
-              : snapshot.world.nearbyBed;
+            const target =
+              typeof request.params.x === 'number' &&
+              typeof request.params.y === 'number' &&
+              typeof request.params.z === 'number'
+                ? { x: request.params.x, y: request.params.y, z: request.params.z }
+                : snapshot.world.nearbyBed;
             if (target) targetPos = { x: target.x, y: target.y, z: target.z };
             else {
               onSpawnFailed?.();
@@ -1395,7 +1582,11 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const currentPos = bot.entity?.position ?? ctx.getSnapshot().world.self.position;
-          const dist = Math.hypot(targetPos.x - currentPos.x, targetPos.y - currentPos.y, targetPos.z - currentPos.z);
+          const dist = Math.hypot(
+            targetPos.x - currentPos.x,
+            targetPos.y - currentPos.y,
+            targetPos.z - currentPos.z
+          );
           if (dist <= 2.5) {
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
@@ -1405,7 +1596,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
                 logger?.warn('[navigation] activateBlock error: ' + err);
               });
             }
-            logger?.info(`[navigation] SetSpawn successfully reached bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
+            logger?.info(
+              `[navigation] SetSpawn successfully reached bed (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
+            );
             onSpawnSet?.(targetPos);
             return { status: 'SUCCESS' };
           }
@@ -1420,14 +1613,21 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             if (shouldJumpObstacle(bot)) {
               bot.setControlState?.('jump', true);
               isJumping = true;
-            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            } else if (
+              isJumping &&
+              (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)
+            ) {
               bot.setControlState?.('jump', false);
               isJumping = false;
             }
           }
 
           if (currentPos && lastPos) {
-            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            const mdist = Math.hypot(
+              currentPos.x - lastPos.x,
+              currentPos.y - lastPos.y,
+              currentPos.z - lastPos.z
+            );
             if (mdist >= 0.15) {
               lastPos = { ...currentPos };
               lastProgressTime = now;
@@ -1438,11 +1638,16 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > navigationConfig.stallThresholdMs;
-          const pathfinderIdle = !isMoving && (now - lastProgressTime) > 800;
+          const progressStalled = now - lastProgressTime > navigationConfig.stallThresholdMs;
+          const pathfinderIdle = !isMoving && now - lastProgressTime > 800;
 
-          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > navigationConfig.stallThresholdMs) {
-            logger?.info('[navigation] SetSpawn path obstructed or idle, recalculating...', { dist });
+          if (
+            (progressStalled || pathfinderIdle) &&
+            now - lastRepathTime > navigationConfig.stallThresholdMs
+          ) {
+            logger?.info('[navigation] SetSpawn path obstructed or idle, recalculating...', {
+              dist,
+            });
             lastRepathTime = now;
             lastProgressTime = now;
             if (currentPos) lastPos = { ...currentPos };

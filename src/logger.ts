@@ -19,7 +19,12 @@ export function createLogger(botId: string, baseDir: string = process.cwd()): Lo
 
   function log(level: string, message: string, data?: unknown) {
     const time = new Date().toISOString();
-    const extra = data !== undefined ? (typeof data === 'object' ? ` ${JSON.stringify(data)}` : ` ${data}`) : '';
+    const extra =
+      data !== undefined
+        ? typeof data === 'object'
+          ? ` ${JSON.stringify(data)}`
+          : ` ${data}`
+        : '';
     const line = `[${time}] [${level}] ${message}${extra}\n`;
     try {
       fs.appendFileSync(logFilePath, line, 'utf8');

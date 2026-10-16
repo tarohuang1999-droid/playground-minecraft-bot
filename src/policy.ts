@@ -1,7 +1,7 @@
 import { THRESHOLDS } from './config/index.ts';
 
 export const RESOURCES = ['MOVE', 'LOOK', 'HAND', 'INVENTORY', 'VOICE'] as const;
-export type ResourceChannel = typeof RESOURCES[number];
+export type ResourceChannel = (typeof RESOURCES)[number];
 export const ACTION_POLICY = {
   Retreat: { priority: 100, requiredResources: ['MOVE', 'LOOK'] },
   EmergencyEat: { priority: 90, requiredResources: ['HAND', 'INVENTORY'] },
@@ -18,7 +18,9 @@ export const ACTION_POLICY = {
   SetSpawn: { priority: 15, requiredResources: ['MOVE', 'LOOK', 'HAND'] },
   Chat: { priority: 10, requiredResources: ['VOICE'] },
   Idle: { priority: 0, requiredResources: [] },
-} as const satisfies Record<string, { priority: number; requiredResources: readonly ResourceChannel[] }>;
+} as const satisfies Record<
+  string,
+  { priority: number; requiredResources: readonly ResourceChannel[] }
+>;
 export type ActionType = keyof typeof ACTION_POLICY;
 export { THRESHOLDS };
-

@@ -20,8 +20,14 @@ test('spawn perception: findBlock receives Vec3 instance with .floored() and res
       assert.strictEqual(typeof floored.x, 'number');
       // Verify matcher filters out occupied beds and bedrock
       assert.strictEqual(options.matching({ name: 'bedrock' }), false);
-      assert.strictEqual(options.matching({ name: 'red_bed', _properties: { occupied: 'true' } }), false);
-      assert.strictEqual(options.matching({ name: 'red_bed', _properties: { occupied: 'false' } }), true);
+      assert.strictEqual(
+        options.matching({ name: 'red_bed', _properties: { occupied: 'true' } }),
+        false
+      );
+      assert.strictEqual(
+        options.matching({ name: 'red_bed', _properties: { occupied: 'false' } }),
+        true
+      );
       assert.strictEqual(options.matching({ name: 'white_bed' }), true);
       return { position: { x: 5, y: 64, z: 5 } };
     },
@@ -43,14 +49,16 @@ test('spawn perception: autonomous bed discovery (no-owner vs owner-with-base)',
     entities: {},
     inventory: { emptySlotCount: () => 36, items: () => [], slots: [] },
     blocks: {
-      'bedrockBlock': { name: 'bedrock', position: { x: 1, y: 64, z: 1 } }, // closer than red_bed, must be ignored!
-      'bed1': { name: 'red_bed', position: { x: 5, y: 64, z: 5 } },
-      'bed2': { name: 'blue_bed', position: { x: 100, y: 64, z: 100 } },
+      bedrockBlock: { name: 'bedrock', position: { x: 1, y: 64, z: 1 } }, // closer than red_bed, must be ignored!
+      bed1: { name: 'red_bed', position: { x: 5, y: 64, z: 5 } },
+      bed2: { name: 'blue_bed', position: { x: 100, y: 64, z: 100 } },
     },
   };
 
   // A. No owner: finds closest bed immediately upon spawn
-  const noOwnerPerception = createPerception(fakeBot as any, undefined, { now: () => simulatedTime });
+  const noOwnerPerception = createPerception(fakeBot as any, undefined, {
+    now: () => simulatedTime,
+  });
   const wNoOwner = noOwnerPerception.sample();
   assert.deepStrictEqual(wNoOwner.nearbyBed, { x: 5, y: 64, z: 5 });
 
@@ -98,7 +106,7 @@ test('spawn integration: bot automatically sets spawn point at nearby bed after 
     entities: Record<number, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     blocks: Record<string, any> = {
-      'bed1': { name: 'white_bed', position: { x: 10, y: 64, z: 10 } },
+      bed1: { name: 'white_bed', position: { x: 10, y: 64, z: 10 } },
     };
     activatedBlocks: any[] = [];
     sent: string[] = [];
@@ -109,14 +117,20 @@ test('spawn integration: bot automatically sets spawn point at nearby bed after 
     blockAt = (pos: any) => {
       const key = Object.keys(this.blocks).find(k => {
         const b = this.blocks[k];
-        return Math.floor(b.position.x) === Math.floor(pos.x) &&
-               Math.floor(b.position.y) === Math.floor(pos.y) &&
-               Math.floor(b.position.z) === Math.floor(pos.z);
+        return (
+          Math.floor(b.position.x) === Math.floor(pos.x) &&
+          Math.floor(b.position.y) === Math.floor(pos.y) &&
+          Math.floor(b.position.z) === Math.floor(pos.z)
+        );
       });
       return key ? this.blocks[key] : null;
     };
-    activateBlock = async (block: any) => { this.activatedBlocks.push(block); };
-    chat(message: string) { this.sent.push(message); }
+    activateBlock = async (block: any) => {
+      this.activatedBlocks.push(block);
+    };
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new SpawnTestBot();
@@ -179,7 +193,7 @@ test('spawn integration: 30s timeout triggers 60s failure cooldown without deadl
     entities: Record<number, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     blocks: Record<string, any> = {
-      'bedUnreachable': { name: 'red_bed', position: { x: 12, y: 64, z: 12 } }, // hypot(12, 12) = 16.97 <= 24
+      bedUnreachable: { name: 'red_bed', position: { x: 12, y: 64, z: 12 } }, // hypot(12, 12) = 16.97 <= 24
     };
     pathfinder = {
       setGoal: () => {},
@@ -218,4 +232,3 @@ test('spawn integration: 30s timeout triggers 60s failure cooldown without deadl
 
   companion.dispose();
 });
-

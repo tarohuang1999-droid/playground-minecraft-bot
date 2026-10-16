@@ -25,10 +25,7 @@ export const DIG_WHITELIST: ReadonlySet<string> = new Set([
   'cobblestone',
 ]);
 
-export const PLACE_WHITELIST: ReadonlySet<string> = new Set([
-  'dirt',
-  'cobblestone',
-]);
+export const PLACE_WHITELIST: ReadonlySet<string> = new Set(['dirt', 'cobblestone']);
 
 export const navigationConfig = {
   followEnter: 2.2,

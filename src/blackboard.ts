@@ -2,11 +2,31 @@ import { RESOURCES, type ActionType, type ResourceChannel } from './policy.ts';
 import type { ActionResult } from './execution/types.ts';
 
 type DeepReadonly<T> = T extends object ? { readonly [K in keyof T]: DeepReadonly<T[K]> } : T;
-export interface Position { x: number; y: number; z: number }
-export interface ObservedEntity { entityId: number; name: string; position: Position; distance: number }
+export interface Position {
+  x: number;
+  y: number;
+  z: number;
+}
+export interface ObservedEntity {
+  entityId: number;
+  name: string;
+  position: Position;
+  distance: number;
+}
 export interface WorldState {
-  self: { position: Position; health: number; food: number; isAlive: boolean; tookDamageRecently: boolean };
-  master: { username: string; entityId: number | null; position: Position | null; distance: number };
+  self: {
+    position: Position;
+    health: number;
+    food: number;
+    isAlive: boolean;
+    tookDamageRecently: boolean;
+  };
+  master: {
+    username: string;
+    entityId: number | null;
+    position: Position | null;
+    distance: number;
+  };
   base: Position | null;
   spawnPoint: Position | null;
   bedNeedsRefresh: boolean;
@@ -32,7 +52,16 @@ export interface IntentState {
   intentRevision: number;
 }
 export interface RuntimeState {
-  activeRuns: Record<string, { runId: string; actionType: ActionType; targetId: number | null; startedAt: number; status: 'RUNNING' | 'STOPPING' | 'FAULTED' }>;
+  activeRuns: Record<
+    string,
+    {
+      runId: string;
+      actionType: ActionType;
+      targetId: number | null;
+      startedAt: number;
+      status: 'RUNNING' | 'STOPPING' | 'FAULTED';
+    }
+  >;
   results: Record<string, ActionResult>;
   cooldowns: Record<number, number>;
   lockedResources: Record<ResourceChannel, string | null>;
@@ -48,18 +77,39 @@ export interface BoardState {
 export type BlackboardSnapshot = DeepReadonly<BoardState>;
 export function createWorld(master: string = ''): WorldState {
   return {
-    self: { position: { x: 0, y: 0, z: 0 }, health: 20, food: 20, isAlive: false, tookDamageRecently: false },
+    self: {
+      position: { x: 0, y: 0, z: 0 },
+      health: 20,
+      food: 20,
+      isAlive: false,
+      tookDamageRecently: false,
+    },
     master: { username: master, entityId: null, position: null, distance: Infinity },
     base: null,
     spawnPoint: null,
     bedNeedsRefresh: false,
     nearbyBed: null,
-    entities: [], threats: [], nearbyDrops: [],
-    inventory: { freeSlots: 0, bestFood: null, bestWeapon: null, equippedWeaponDamage: 0, pendingArmorUpgrade: null },
+    entities: [],
+    threats: [],
+    nearbyDrops: [],
+    inventory: {
+      freeSlots: 0,
+      bestFood: null,
+      bestWeapon: null,
+      equippedWeaponDamage: 0,
+      pendingArmorUpgrade: null,
+    },
   };
 }
 export function emptyRuntime(): RuntimeState {
-  return { activeRuns: {}, results: {}, cooldowns: {}, lockedResources: Object.fromEntries(RESOURCES.map(r => [r, null])) as RuntimeState['lockedResources'] };
+  return {
+    activeRuns: {},
+    results: {},
+    cooldowns: {},
+    lockedResources: Object.fromEntries(
+      RESOURCES.map(r => [r, null])
+    ) as RuntimeState['lockedResources'],
+  };
 }
 function freezeDeep<T>(value: T): DeepReadonly<T> {
   if (value !== null && typeof value === 'object') {
@@ -75,7 +125,10 @@ export function createBlackboard(master: string) {
   }
 
   let state: BoardState = {
-    revision: 0, observedAt: 0, generation: 0, world: createWorld(master),
+    revision: 0,
+    observedAt: 0,
+    generation: 0,
+    world: createWorld(master),
     intent: {
       mode: 'IDLE',
       targetPosition: null,
@@ -88,7 +141,9 @@ export function createBlackboard(master: string) {
     runtime: emptyRuntime(),
   };
   return {
-    setWorld(world: WorldState) { state.world = structuredClone(world); },
+    setWorld(world: WorldState) {
+      state.world = structuredClone(world);
+    },
     setIntent(mode: IntentState['mode'], now: number, targetPosition?: Position | null) {
       state.intent = {
         ...state.intent,
@@ -117,7 +172,9 @@ export function createBlackboard(master: string) {
         intentRevision: state.intent.intentRevision + 1,
       };
     },
-    setRuntime(runtime: RuntimeState) { state.runtime = structuredClone(runtime); },
+    setRuntime(runtime: RuntimeState) {
+      state.runtime = structuredClone(runtime);
+    },
     reset(generation: number) {
       state = {
         ...state,

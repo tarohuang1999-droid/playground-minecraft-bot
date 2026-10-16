@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+logs
+coverage
+.pnpm-store
+package-lock.json
+pnpm-lock.yaml

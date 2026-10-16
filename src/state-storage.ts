@@ -11,7 +11,6 @@ export interface PersistentState {
 export const DEFAULT_DATA_DIR = path.resolve(process.cwd(), 'data');
 export const DEFAULT_STATE_FILE = path.resolve(process.cwd(), systemConfig.stateStorageFile);
 
-
 export function loadPersistentState(filePath: string = DEFAULT_STATE_FILE): PersistentState {
   try {
     if (!fs.existsSync(filePath)) {
@@ -20,12 +19,18 @@ export function loadPersistentState(filePath: string = DEFAULT_STATE_FILE): Pers
     const content = fs.readFileSync(filePath, 'utf-8');
     const parsed = JSON.parse(content);
     return {
-      base: (parsed?.base && typeof parsed.base.x === 'number')
-        ? { x: Number(parsed.base.x), y: Number(parsed.base.y), z: Number(parsed.base.z) }
-        : null,
-      spawnPoint: (parsed?.spawnPoint && typeof parsed.spawnPoint.x === 'number')
-        ? { x: Number(parsed.spawnPoint.x), y: Number(parsed.spawnPoint.y), z: Number(parsed.spawnPoint.z) }
-        : null,
+      base:
+        parsed?.base && typeof parsed.base.x === 'number'
+          ? { x: Number(parsed.base.x), y: Number(parsed.base.y), z: Number(parsed.base.z) }
+          : null,
+      spawnPoint:
+        parsed?.spawnPoint && typeof parsed.spawnPoint.x === 'number'
+          ? {
+              x: Number(parsed.spawnPoint.x),
+              y: Number(parsed.spawnPoint.y),
+              z: Number(parsed.spawnPoint.z),
+            }
+          : null,
     };
   } catch {
     return { base: null, spawnPoint: null };

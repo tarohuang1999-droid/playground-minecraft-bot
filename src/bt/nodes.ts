@@ -2,7 +2,10 @@ import type { BlackboardSnapshot } from '../blackboard.ts';
 import { ACTION_POLICY, type ActionType, type ResourceChannel } from '../policy.ts';
 import type { ActionRequest, NodeStatus } from '../execution/types.ts';
 
-export interface TickResult { status: NodeStatus; requests: ActionRequest[] }
+export interface TickResult {
+  status: NodeStatus;
+  requests: ActionRequest[];
+}
 interface NodeState {
   cursor?: number;
   activeIndex?: number;
@@ -18,24 +21,42 @@ export interface BtContext {
   states: Map<string, NodeState>;
   nextRunId(nodeId: string): string;
 }
-export interface BtNode { id: string; tick(ctx: BtContext): TickResult; halt(ctx: BtContext): void }
-const result = (status: NodeStatus, requests: ActionRequest[] = []): TickResult => ({ status, requests });
+export interface BtNode {
+  id: string;
+  tick(ctx: BtContext): TickResult;
+  halt(ctx: BtContext): void;
+}
+const result = (status: NodeStatus, requests: ActionRequest[] = []): TickResult => ({
+  status,
+  requests,
+});
 function state(ctx: BtContext, id: string): NodeState {
   let value = ctx.states.get(id);
-  if (!value) { value = {}; ctx.states.set(id, value); }
+  if (!value) {
+    value = {};
+    ctx.states.set(id, value);
+  }
   return value;
 }
-export function action(id: string, describe: (snapshot: BlackboardSnapshot) => {
-  actionType: ActionType;
-  targetId: number | null;
-  params: ActionRequest['params'];
-  requiredResources?: readonly ResourceChannel[];
-}): BtNode {
+export function action(
+  id: string,
+  describe: (snapshot: BlackboardSnapshot) => {
+    actionType: ActionType;
+    targetId: number | null;
+    params: ActionRequest['params'];
+    requiredResources?: readonly ResourceChannel[];
+  }
+): BtNode {
   return {
     id,
     tick(ctx) {
       const spec = describe(ctx.snapshot);
-      const signature = JSON.stringify([spec.actionType, spec.targetId, spec.params, spec.requiredResources]);
+      const signature = JSON.stringify([
+        spec.actionType,
+        spec.targetId,
+        spec.params,
+        spec.requiredResources,
+      ]);
       const current = state(ctx, id);
       if (signature !== current.signature) {
         current.runId = ctx.nextRunId(id);
@@ -43,35 +64,57 @@ export function action(id: string, describe: (snapshot: BlackboardSnapshot) => {
       }
       const runId = current.runId!;
       const outcome = ctx.snapshot.runtime.results[runId];
-      if (outcome) { ctx.states.delete(id); return result(outcome.status); }
+      if (outcome) {
+        ctx.states.delete(id);
+        return result(outcome.status);
+      }
       const policy = ACTION_POLICY[spec.actionType];
-      return result('RUNNING', [{
-        nodeId: id,
-        runId,
-        actionType: spec.actionType,
-        targetId: spec.targetId,
-        params: spec.params,
-        priority: policy.priority,
-        requiredResources: spec.requiredResources ?? policy.requiredResources,
-      }]);
+      return result('RUNNING', [
+        {
+          nodeId: id,
+          runId,
+          actionType: spec.actionType,
+          targetId: spec.targetId,
+          params: spec.params,
+          priority: policy.priority,
+          requiredResources: spec.requiredResources ?? policy.requiredResources,
+        },
+      ]);
     },
-    halt(ctx) { ctx.states.delete(id); },
+    halt(ctx) {
+      ctx.states.delete(id);
+    },
   };
 }
-export function guard(id: string, enter: (snapshot: BlackboardSnapshot) => boolean, child: BtNode,
-  options: { exit?: (snapshot: BlackboardSnapshot) => boolean } = {}): BtNode {
+export function guard(
+  id: string,
+  enter: (snapshot: BlackboardSnapshot) => boolean,
+  child: BtNode,
+  options: { exit?: (snapshot: BlackboardSnapshot) => boolean } = {}
+): BtNode {
   return {
     id,
     tick(ctx) {
       const current = state(ctx, id);
-      const allowed = current.entered && options.exit ? !options.exit(ctx.snapshot) : enter(ctx.snapshot);
-      if (!allowed) { child.halt(ctx); ctx.states.delete(id); return result('FAILURE'); }
+      const allowed =
+        current.entered && options.exit ? !options.exit(ctx.snapshot) : enter(ctx.snapshot);
+      if (!allowed) {
+        child.halt(ctx);
+        ctx.states.delete(id);
+        return result('FAILURE');
+      }
       current.entered = true;
       const outcome = child.tick(ctx);
-      if (outcome.status !== 'RUNNING') { child.halt(ctx); ctx.states.delete(id); }
+      if (outcome.status !== 'RUNNING') {
+        child.halt(ctx);
+        ctx.states.delete(id);
+      }
       return outcome;
     },
-    halt(ctx) { child.halt(ctx); ctx.states.delete(id); },
+    halt(ctx) {
+      child.halt(ctx);
+      ctx.states.delete(id);
+    },
   };
 }
 export function reactiveSelector(id: string, children: readonly BtNode[]): BtNode {
@@ -82,17 +125,27 @@ export function reactiveSelector(id: string, children: readonly BtNode[]): BtNod
       for (let index = 0; index < children.length; index++) {
         const child = children[index]!;
         const outcome = child.tick(ctx);
-        if (outcome.status === 'FAILURE') { child.halt(ctx); continue; }
-        if (current.activeIndex !== undefined && current.activeIndex !== index) children[current.activeIndex]!.halt(ctx);
+        if (outcome.status === 'FAILURE') {
+          child.halt(ctx);
+          continue;
+        }
+        if (current.activeIndex !== undefined && current.activeIndex !== index)
+          children[current.activeIndex]!.halt(ctx);
         current.activeIndex = index;
-        if (outcome.status === 'SUCCESS') { child.halt(ctx); ctx.states.delete(id); }
+        if (outcome.status === 'SUCCESS') {
+          child.halt(ctx);
+          ctx.states.delete(id);
+        }
         return outcome;
       }
       if (current.activeIndex !== undefined) children[current.activeIndex]!.halt(ctx);
       ctx.states.delete(id);
       return result('FAILURE');
     },
-    halt(ctx) { children.forEach(child => child.halt(ctx)); ctx.states.delete(id); },
+    halt(ctx) {
+      children.forEach(child => child.halt(ctx));
+      ctx.states.delete(id);
+    },
   };
 }
 export function sequence(id: string, children: readonly BtNode[]): BtNode {
@@ -106,16 +159,26 @@ export function sequence(id: string, children: readonly BtNode[]): BtNode {
         const outcome = child.tick(ctx);
         if (outcome.status === 'RUNNING') return outcome;
         child.halt(ctx);
-        if (outcome.status === 'FAILURE') { ctx.states.delete(id); return outcome; }
+        if (outcome.status === 'FAILURE') {
+          ctx.states.delete(id);
+          return outcome;
+        }
         current.cursor++;
       }
       ctx.states.delete(id);
       return result('SUCCESS');
     },
-    halt(ctx) { children.forEach(child => child.halt(ctx)); ctx.states.delete(id); },
+    halt(ctx) {
+      children.forEach(child => child.halt(ctx));
+      ctx.states.delete(id);
+    },
   };
 }
-export function parallel(id: string, children: readonly BtNode[], options: { persistent?: boolean } = {}): BtNode {
+export function parallel(
+  id: string,
+  children: readonly BtNode[],
+  options: { persistent?: boolean } = {}
+): BtNode {
   return {
     id,
     tick(ctx) {
@@ -137,10 +200,16 @@ export function parallel(id: string, children: readonly BtNode[], options: { per
           if (!options.persistent) current.completed.add(index);
         }
       }
-      if (!options.persistent && current.completed.size === children.length) { ctx.states.delete(id); return result('SUCCESS'); }
+      if (!options.persistent && current.completed.size === children.length) {
+        ctx.states.delete(id);
+        return result('SUCCESS');
+      }
       return result('RUNNING', requests);
     },
-    halt(ctx) { children.forEach(child => child.halt(ctx)); ctx.states.delete(id); },
+    halt(ctx) {
+      children.forEach(child => child.halt(ctx));
+      ctx.states.delete(id);
+    },
   };
 }
 export function stagedRecovery(id: string, stages: readonly BtNode[]): BtNode {
@@ -269,10 +338,17 @@ export function createTree(root: BtNode) {
   let context: BtContext | undefined;
   return {
     tick(snapshot: BlackboardSnapshot): TickResult {
-      context = { snapshot, states, nextRunId: nodeId => `${snapshot.generation}:${nodeId}:${++counter}` };
+      context = {
+        snapshot,
+        states,
+        nextRunId: nodeId => `${snapshot.generation}:${nodeId}:${++counter}`,
+      };
       return root.tick(context);
     },
-    halt() { if (context) root.halt(context); states.clear(); },
+    halt() {
+      if (context) root.halt(context);
+      states.clear();
+    },
   };
 }
 export type BehaviorTree = ReturnType<typeof createTree>;

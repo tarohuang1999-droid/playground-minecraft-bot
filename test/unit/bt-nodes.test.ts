@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBlackboard } from '../../src/blackboard.ts';
-import { action, createTree, guard, parallel, reactiveSelector, recovery, sequence, stagedRecovery } from '../../src/bt/nodes.ts';
+import {
+  action,
+  createTree,
+  guard,
+  parallel,
+  reactiveSelector,
+  recovery,
+  sequence,
+  stagedRecovery,
+} from '../../src/bt/nodes.ts';
 import type { BtNode } from '../../src/bt/nodes.ts';
 
 const snapshot = () => createBlackboard('owner').snapshot(0);
@@ -10,11 +19,20 @@ const idle = (id: string) => action(id, () => ({ actionType: 'Idle', targetId: n
 test('reactive preemption resets the lower sequence and preserves uninterrupted run IDs', () => {
   let danger = false;
   let preparations = 0;
-  const prepare: BtNode = { id: 'prepare', tick: () => { preparations++; return { status: 'SUCCESS', requests: [] }; }, halt() {} };
-  const tree = createTree(reactiveSelector('root', [
-    guard('danger', () => danger, idle('retreat')),
-    sequence('work', [prepare, idle('follow')]),
-  ]));
+  const prepare: BtNode = {
+    id: 'prepare',
+    tick: () => {
+      preparations++;
+      return { status: 'SUCCESS', requests: [] };
+    },
+    halt() {},
+  };
+  const tree = createTree(
+    reactiveSelector('root', [
+      guard('danger', () => danger, idle('retreat')),
+      sequence('work', [prepare, idle('follow')]),
+    ])
+  );
   const first = tree.tick(snapshot()).requests[0]!;
   assert.equal(tree.tick(snapshot()).requests[0]!.runId, first.runId);
   assert.equal(preparations, 1);
@@ -38,7 +56,9 @@ test('persistent parallel retains both requests and halt re-enters with fresh ru
 
 test('guard has separate enter and exit thresholds', () => {
   let distance = 6;
-  const tree = createTree(guard('follow', () => distance > 5, idle('move'), { exit: () => distance <= 3 }));
+  const tree = createTree(
+    guard('follow', () => distance > 5, idle('move'), { exit: () => distance <= 3 })
+  );
   const request = tree.tick(snapshot()).requests[0]!;
   distance = 4;
   assert.equal(tree.tick(snapshot()).requests[0]!.runId, request.runId);
@@ -65,13 +85,23 @@ test('recovery node ticks recovery action on primary failure and retries primary
 
   const primary: BtNode = {
     id: 'primary',
-    tick: () => { primaryTicks++; return { status: primaryStatus, requests: [] }; },
-    halt: () => { primaryHalts++; },
+    tick: () => {
+      primaryTicks++;
+      return { status: primaryStatus, requests: [] };
+    },
+    halt: () => {
+      primaryHalts++;
+    },
   };
   const recAction: BtNode = {
     id: 'recAction',
-    tick: () => { recoveryTicks++; return { status: recoveryStatus, requests: [] }; },
-    halt: () => { recoveryHalts++; },
+    tick: () => {
+      recoveryTicks++;
+      return { status: recoveryStatus, requests: [] };
+    },
+    halt: () => {
+      recoveryHalts++;
+    },
   };
 
   const tree = createTree(recovery('recNode', primary, recAction, { maxRetries: 2 }));
@@ -162,17 +192,12 @@ test('stagedRecovery steps through stages on subsequent recovery attempts', () =
 
   let finalFailureCalled = false;
   const tree = createTree(
-    recovery(
-      'recNode',
-      primary,
-      stagedRecovery('stagedRec', [stage0, stage1]),
-      {
-        maxRetries: 2,
-        onFinalFailure: () => {
-          finalFailureCalled = true;
-        },
-      }
-    )
+    recovery('recNode', primary, stagedRecovery('stagedRec', [stage0, stage1]), {
+      maxRetries: 2,
+      onFinalFailure: () => {
+        finalFailureCalled = true;
+      },
+    })
   );
 
   // Tick 1: Primary fails (1) -> Stage 0 runs and succeeds -> Primary retried in same tick -> fails (2)
@@ -182,6 +207,7 @@ test('stagedRecovery steps through stages on subsequent recovery attempts', () =
   assert.equal(res.status, 'FAILURE');
   assert.equal(stage0Ticks, 1, 'Stage 0 must execute on first recovery attempt');
   assert.equal(stage1Ticks, 1, 'Stage 1 must execute on second recovery attempt');
+  assert.equal(primaryFails, 3, 'Primary must fail 3 times (initial + 2 retries)');
   assert.equal(finalFailureCalled, true, 'onFinalFailure must be called when maxRetries exhausted');
 });
 
@@ -220,5 +246,3 @@ test('stagedRecovery falls through to next stage immediately if first stage fail
   assert.equal(stage0Ticks, 1, 'Stage 0 attempted first');
   assert.equal(stage1Ticks, 1, 'Stage 1 immediately executed in same tick when stage 0 failed');
 });
-
-

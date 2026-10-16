@@ -16,10 +16,13 @@ test('state-storage: loads empty state if file does not exist', () => {
 test('state-storage: saves and reloads base and spawn point state', () => {
   const tmpPath = path.resolve(process.cwd(), 'data/test-state.json');
   try {
-    savePersistentState({
-      base: { x: 12.3, y: 64, z: -45.6 },
-      spawnPoint: { x: 10, y: 64, z: 10 },
-    }, tmpPath);
+    savePersistentState(
+      {
+        base: { x: 12.3, y: 64, z: -45.6 },
+        spawnPoint: { x: 10, y: 64, z: 10 },
+      },
+      tmpPath
+    );
 
     assert.ok(fs.existsSync(tmpPath));
 

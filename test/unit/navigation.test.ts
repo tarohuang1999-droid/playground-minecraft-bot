@@ -17,7 +17,9 @@ test('navigation adapter: sets dynamic GoalFollow and does not repeat setGoal on
   const goalCalls: Array<{ goal: any; dynamic?: boolean | undefined }> = [];
   const fakeBot = {
     pathfinder: {
-      setGoal(goal: any, dynamic?: boolean) { goalCalls.push({ goal, dynamic }); },
+      setGoal(goal: any, dynamic?: boolean) {
+        goalCalls.push({ goal, dynamic });
+      },
     },
     entities: { 10: { id: 10, position: { x: 10, y: 64, z: 10 } } },
     players: { owner: { entity: { id: 10, position: { x: 10, y: 64, z: 10 } } } },
@@ -27,17 +29,30 @@ test('navigation adapter: sets dynamic GoalFollow and does not repeat setGoal on
   const board = createBlackboard('owner');
   const world = createWorld('owner');
   world.self.position = { x: 0, y: 64, z: 0 };
-  world.master = { username: 'owner', entityId: 10, position: { x: 10, y: 64, z: 10 }, distance: 14.14 };
+  world.master = {
+    username: 'owner',
+    entityId: 10,
+    position: { x: 10, y: 64, z: 10 },
+    distance: 14.14,
+  };
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-1', actionType: 'NormalFollow',
-    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: 10,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
 
   let active = true;
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => active,
     getSnapshot: () => board.snapshot(0),
   };
@@ -56,7 +71,12 @@ test('navigation adapter: sets dynamic GoalFollow and does not repeat setGoal on
 
   // When master distance <= exit threshold (1.2 blocks) and height aligned (|dy| <= 1.2)
   world.self.position = { x: 9.5, y: 64, z: 10 };
-  world.master = { username: 'owner', entityId: 10, position: { x: 10, y: 64, z: 10 }, distance: 0.5 };
+  world.master = {
+    username: 'owner',
+    entityId: 10,
+    position: { x: 10, y: 64, z: 10 },
+    distance: 0.5,
+  };
   board.setWorld(world);
   const result = adapter.update!(ctx);
   assert.deepEqual(result, { status: 'SUCCESS' });
@@ -73,7 +93,9 @@ test('navigation adapter: target lost returns FAILURE and clears goal', () => {
   const goalCalls: any[] = [];
   const fakeBot = {
     pathfinder: {
-      setGoal(goal: any, dynamic?: boolean) { goalCalls.push(goal); },
+      setGoal(goal: any, _dynamic?: boolean) {
+        goalCalls.push(goal);
+      },
     },
     entities: {},
     players: {},
@@ -82,8 +104,18 @@ test('navigation adapter: target lost returns FAILURE and clears goal', () => {
   const nav = createNavigation(fakeBot as any);
   const board = createBlackboard('owner');
   const ctx: ActionContext = {
-    request: { nodeId: 'n', runId: 'r', actionType: 'NormalFollow', targetId: 99, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {} },
-    token: 1, generation: 0, signal: new AbortController().signal,
+    request: {
+      nodeId: 'n',
+      runId: 'r',
+      actionType: 'NormalFollow',
+      targetId: 99,
+      priority: 20,
+      requiredResources: ['MOVE', 'LOOK'],
+      params: {},
+    },
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => true,
     getSnapshot: () => board.snapshot(0),
   };
@@ -101,14 +133,18 @@ test('integration: follow command engages navigation, unfollow stops it, hystere
     food = 20;
     goalsSet: any[] = [];
     pathfinder = {
-      setGoal: (goal: any, dynamic?: boolean) => { this.goalsSet.push({ goal, dynamic }); },
+      setGoal: (goal: any, dynamic?: boolean) => {
+        this.goalsSet.push({ goal, dynamic });
+      },
       setMovements: (_movements: any) => {},
     };
     entities: Record<number, any> = {};
     players: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36 };
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new PathfinderBot();
@@ -120,13 +156,15 @@ test('integration: follow command engages navigation, unfollow stops it, hystere
   bot.emit('spawn');
 
   // Initially Idle
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'IDLE');
   assert.equal(companion.snapshot().runtime.lockedResources.MOVE, null);
 
   // Command: follow -> distance is 10 (> 5), so NormalFollow starts!
   bot.emit('chat', 'owner', '!follow');
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'FOLLOW');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /NormalFollow/);
   assert.ok(bot.goalsSet.length > 0);
@@ -134,17 +172,20 @@ test('integration: follow command engages navigation, unfollow stops it, hystere
 
   // Master moves closer (distance 1.0 <= 1.2) -> NormalFollow exits to Idle
   ownerEntity.position.x = 1.0;
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.equal(companion.snapshot().runtime.lockedResources.MOVE, null);
 
   // Master moves far (distance 20 > 16) -> CatchUpFollow (Priority 40)
   ownerEntity.position.x = 20;
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /CatchUpFollow/);
 
   // Command: unfollow -> cancels follow, transitions to STAY, frees locks
   bot.emit('chat', 'owner', '!unfollow');
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
   assert.equal(companion.snapshot().intent.mode, 'STAY');
   assert.equal(companion.snapshot().runtime.lockedResources.MOVE, null);
 
@@ -155,7 +196,17 @@ test('setupMovements: configures canDig, allowParkour, and allowSprinting', () =
   const dummyBot = {
     pathfinder: { setMovements(_m: any) {} },
     registry: {
-      blocksByName: { water: { id: 1 }, ladder: { id: 2 }, vine: { id: 3 }, chest: { id: 4 }, fire: { id: 5 }, lava: { id: 6 }, sand: { id: 7 }, gravel: { id: 8 }, air: { id: 9 } },
+      blocksByName: {
+        water: { id: 1 },
+        ladder: { id: 2 },
+        vine: { id: 3 },
+        chest: { id: 4 },
+        fire: { id: 5 },
+        lava: { id: 6 },
+        sand: { id: 7 },
+        gravel: { id: 8 },
+        air: { id: 9 },
+      },
       blocksArray: [{ id: 9, diggable: false, minStateId: 0, shapes: [] }],
       itemsByName: { dirt: { id: 10 }, cobblestone: { id: 11 } },
     },
@@ -208,7 +259,9 @@ test('navigation adapter: obstacle jump sets jump control state and clears when 
       onGround: true,
       isCollidedHorizontally: true,
     },
-    setControlState(control: string, state: boolean) { controlStates[control] = state; },
+    setControlState(control: string, state: boolean) {
+      controlStates[control] = state;
+    },
     blockAt(pos: { x: number; y: number; z: number }) {
       if (pos.y < 65) return { boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] };
       return { boundingBox: 'empty', shapes: [] };
@@ -221,15 +274,28 @@ test('navigation adapter: obstacle jump sets jump control state and clears when 
   const nav = createNavigation(fakeBot);
   const board = createBlackboard('owner');
   const world = createWorld('owner');
-  world.master = { username: 'owner', entityId: 10, position: { x: 0, y: 64, z: 10 }, distance: 10 };
+  world.master = {
+    username: 'owner',
+    entityId: 10,
+    position: { x: 0, y: 64, z: 10 },
+    distance: 10,
+  };
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-jump', actionType: 'NormalFollow',
-    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-jump',
+    actionType: 'NormalFollow',
+    targetId: 10,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => true,
     getSnapshot: () => board.snapshot(0),
   };
@@ -275,9 +341,12 @@ test('navigation adapter: ladder climbing engages jump when target is higher', a
       onGround: false,
       isCollidedHorizontally: false,
     },
-    setControlState(control: string, state: boolean) { controlStates[control] = state; },
+    setControlState(control: string, state: boolean) {
+      controlStates[control] = state;
+    },
     blockAt(pos: { x: number; y: number; z: number }) {
-      if (Math.floor(pos.y) === 64) return { name: 'ladder', boundingBox: 'block', shapes: [[0, 0, 0.8, 1, 1, 1]] };
+      if (Math.floor(pos.y) === 64)
+        return { name: 'ladder', boundingBox: 'block', shapes: [[0, 0, 0.8, 1, 1, 1]] };
       return { name: 'air', boundingBox: 'empty', shapes: [] };
     },
     pathfinder: { setGoal() {}, isMoving: () => true },
@@ -294,11 +363,19 @@ test('navigation adapter: ladder climbing engages jump when target is higher', a
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-ladder', actionType: 'NormalFollow',
-    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-ladder',
+    actionType: 'NormalFollow',
+    targetId: 10,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => true,
     getSnapshot: () => board.snapshot(0),
   };
@@ -312,7 +389,8 @@ test('navigation adapter: ladder climbing engages jump when target is higher', a
 });
 
 test('navigation adapter: doors auto-open in front and open doors are passable without flapping', async () => {
-  const { isDoorBlock, isDoorOpen, tryOpenDoorInFront, isPassable, DoorManager } = await import('../../src/actions/navigation.ts');
+  const { isDoorBlock, isDoorOpen, isPassable, DoorManager } =
+    await import('../../src/actions/navigation.ts');
   let activationCount = 0;
   const fakeBot: any = {
     entity: {
@@ -321,7 +399,12 @@ test('navigation adapter: doors auto-open in front and open doors are passable w
     },
     blockAt(pos: { x: number; y: number; z: number }) {
       if (Math.abs(pos.z - -0.8) < 0.5) {
-        return { name: 'oak_door', _properties: { open: false }, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 0.2]] };
+        return {
+          name: 'oak_door',
+          _properties: { open: false },
+          boundingBox: 'block',
+          shapes: [[0, 0, 0, 1, 1, 0.2]],
+        };
       }
       return { name: 'air', boundingBox: 'empty', shapes: [] };
     },
@@ -346,7 +429,12 @@ test('navigation adapter: doors auto-open in front and open doors are passable w
   assert.equal(activationCount, 1);
 
   // Door is already open -> must NEVER interact / close it
-  const openDoor = { name: 'oak_door', _properties: { open: true }, boundingBox: 'block', shapes: [[0, 0, 0, 0.2, 1, 1]] };
+  const openDoor = {
+    name: 'oak_door',
+    _properties: { open: true },
+    boundingBox: 'block',
+    shapes: [[0, 0, 0, 0.2, 1, 1]],
+  };
   assert.equal(isPassable(openDoor), true);
   assert.equal(isDoorOpen(openDoor), true);
 
@@ -372,15 +460,28 @@ test('navigation adapter: follow does not exit if target is on cliff with close 
   const board = createBlackboard('owner');
   const world = createWorld('owner');
   world.self.position = { x: 0, y: 64, z: 0 };
-  world.master = { username: 'owner', entityId: 10, position: { x: 0.5, y: 67, z: 0.5 }, distance: 3.08 };
+  world.master = {
+    username: 'owner',
+    entityId: 10,
+    position: { x: 0.5, y: 67, z: 0.5 },
+    distance: 3.08,
+  };
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-height', actionType: 'NormalFollow',
-    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-height',
+    actionType: 'NormalFollow',
+    targetId: 10,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => true,
     getSnapshot: () => board.snapshot(0),
   };
@@ -449,7 +550,9 @@ test('navigation mission quota and capability switches: quota preserved within m
     pathfinder: {
       setGoal() {},
       movements: { canDig: false, scafoldingBlocks: [] },
-      setMovements(m: any) { this.movements = m; },
+      setMovements(m: any) {
+        this.movements = m;
+      },
     },
     registry: {
       itemsByName: { dirt: { id: 1 } },
@@ -462,18 +565,31 @@ test('navigation mission quota and capability switches: quota preserved within m
   const nav = createNavigation(fakeBot);
   const board = createBlackboard('owner');
   const world = createWorld('owner');
-  world.master = { username: 'owner', entityId: 10, position: { x: 0, y: 64, z: 10 }, distance: 10 };
+  world.master = {
+    username: 'owner',
+    entityId: 10,
+    position: { x: 0, y: 64, z: 10 },
+    distance: 10,
+  };
   board.setWorld(world);
 
   // Run 1 in Mission 1: canDig=true, allowBridge=true
   const req1: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-1', actionType: 'NormalFollow',
-    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    nodeId: 'NormalFollow',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: 10,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
     params: { canDig: true, allowBridge: true, missionId: 'mission-1' },
   };
   const ctx1: ActionContext = {
-    request: req1, token: 1, generation: 0, signal: new AbortController().signal,
-    isActive: () => true, getSnapshot: () => board.snapshot(0),
+    request: req1,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
   };
   const adapter1 = nav.normalFollow(req1);
   adapter1.start(ctx1);
@@ -486,13 +602,21 @@ test('navigation mission quota and capability switches: quota preserved within m
 
   // Run 2 in same Mission 1 (e.g. CatchUpFollow transition or resuming after eating)
   const req2: ActionRequest = {
-    nodeId: 'CatchUpFollow', runId: 'run-2', actionType: 'CatchUpFollow',
-    targetId: 10, priority: 40, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    nodeId: 'CatchUpFollow',
+    runId: 'run-2',
+    actionType: 'CatchUpFollow',
+    targetId: 10,
+    priority: 40,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
     params: { canDig: true, allowBridge: true, missionId: 'mission-1' },
   };
   const ctx2: ActionContext = {
-    request: req2, token: 2, generation: 0, signal: new AbortController().signal,
-    isActive: () => true, getSnapshot: () => board.snapshot(0),
+    request: req2,
+    token: 2,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
   };
   const adapter2 = nav.catchUpFollow(req2);
   adapter2.start(ctx2);
@@ -503,13 +627,21 @@ test('navigation mission quota and capability switches: quota preserved within m
 
   // Run 3 in a NEW Mission 2 (e.g. owner issued !come or fresh !follow)
   const req3: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-3', actionType: 'NormalFollow',
-    targetId: 10, priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    nodeId: 'NormalFollow',
+    runId: 'run-3',
+    actionType: 'NormalFollow',
+    targetId: 10,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
     params: { canDig: true, allowBridge: true, missionId: 'mission-2' },
   };
   const ctx3: ActionContext = {
-    request: req3, token: 3, generation: 0, signal: new AbortController().signal,
-    isActive: () => true, getSnapshot: () => board.snapshot(0),
+    request: req3,
+    token: 3,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
   };
   const adapter3 = nav.normalFollow(req3);
   adapter3.start(ctx3);
@@ -518,5 +650,3 @@ test('navigation mission quota and capability switches: quota preserved within m
   assert.equal(nav.boundary.getDigQuota(), 3);
   adapter3.cancel?.();
 });
-
-

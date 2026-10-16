@@ -2,7 +2,6 @@ import { DIG_WHITELIST, PLACE_WHITELIST } from '../config/navigation.config.ts';
 
 export { DIG_WHITELIST, PLACE_WHITELIST };
 
-
 export interface NavigationTaskState {
   missionId: string;
   canDig: boolean;
@@ -11,7 +10,11 @@ export interface NavigationTaskState {
   placeQuota: number;
 }
 
-export function createNavigationTaskState(missionId: string, canDig = false, allowBridge = false): NavigationTaskState {
+export function createNavigationTaskState(
+  missionId: string,
+  canDig = false,
+  allowBridge = false
+): NavigationTaskState {
   return {
     missionId,
     canDig,

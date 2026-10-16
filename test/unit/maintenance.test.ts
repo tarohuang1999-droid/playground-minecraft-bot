@@ -6,7 +6,6 @@ import { createInventoryAdapters } from '../../src/actions/inventory.ts';
 import { createNavigation } from '../../src/actions/navigation.ts';
 import { createCompanionTree } from '../../src/bt/companion-tree.ts';
 import { createArbiter } from '../../src/execution/arbiter.ts';
-import { createExecutor } from '../../src/execution/executor.ts';
 import type { ActionContext, ActionRequest } from '../../src/execution/types.ts';
 
 test('inventory perception: scores best food, armor upgrades, and weapons correctly', () => {
@@ -27,7 +26,11 @@ test('inventory perception: scores best food, armor upgrades, and weapons correc
         { type: 301, name: 'iron_sword', slot: 27 },
       ],
       slots: [
-        null, null, null, null, null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null, // slot 5 head
         { type: 200, name: 'leather_chestplate', slot: 6 }, // slot 6 torso
         null, // slot 7 legs
@@ -50,7 +53,7 @@ test('inventory perception: scores best food, armor upgrades, and weapons correc
 
   // 3. Weapon: iron_sword
   assert.equal(world.inventory.bestWeapon?.name, 'iron_sword');
-  assert.ok(world.inventory.bestWeapon?.attackDamage! > 0);
+  assert.ok((world.inventory.bestWeapon?.attackDamage ?? 0) > 0);
 });
 
 test('maintenance subtree: RoutineEat triggers when food <= 16, EmergencyEat when health <= 10 or food <= 6', () => {
@@ -87,21 +90,33 @@ test('maintenance subtree: RoutineEat triggers when food <= 16, EmergencyEat whe
   board.setWorld(world);
   snapshot = board.snapshot(300);
   res = tree.tick(snapshot);
-  assert.equal(res.requests.some(r => r.actionType === 'RoutineEat' || r.actionType === 'EmergencyEat'), false);
+  assert.equal(
+    res.requests.some(r => r.actionType === 'RoutineEat' || r.actionType === 'EmergencyEat'),
+    false
+  );
 });
 
 test('dual-channel blending: Follow (MOVE, LOOK) and RoutineEat (HAND, INVENTORY) execute in parallel without conflict', () => {
   const arbiter = createArbiter();
-  const board = createBlackboard('dakaz');
 
   // Both actions requested at once
   const followReq: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-follow', actionType: 'NormalFollow',
-    targetId: 2, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-follow',
+    actionType: 'NormalFollow',
+    targetId: 2,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
   const eatReq: ActionRequest = {
-    nodeId: 'RoutineEat', runId: 'run-eat', actionType: 'RoutineEat',
-    targetId: null, priority: 60, requiredResources: ['HAND', 'INVENTORY'], params: {},
+    nodeId: 'RoutineEat',
+    runId: 'run-eat',
+    actionType: 'RoutineEat',
+    targetId: null,
+    priority: 60,
+    requiredResources: ['HAND', 'INVENTORY'],
+    params: {},
   };
 
   const winners = arbiter.select([followReq, eatReq]);
@@ -153,7 +168,11 @@ test('resource contract: off navigation (MOVE, LOOK) blends with RoutineEat; on 
 
   winners = arbiter.select(res.requests);
   assert.equal(winners.length, 1);
-  assert.equal(winners[0]?.actionType, 'RoutineEat', 'RoutineEat (60) preempts NormalFollow (20) holding HAND+INVENTORY');
+  assert.equal(
+    winners[0]?.actionType,
+    'RoutineEat',
+    'RoutineEat (60) preempts NormalFollow (20) holding HAND+INVENTORY'
+  );
 
   // Case 3: canDig=false, allowBridge=true -> also requests 4 resources
   board.setDig(false, 300);
@@ -182,13 +201,21 @@ test('static capability contract: navigation does not dynamically toggle canDig 
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-f1', actionType: 'NormalFollow',
-    targetId: 2, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-f1',
+    actionType: 'NormalFollow',
+    targetId: 2,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
 
   let active = true;
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => active,
     getSnapshot: () => board.snapshot(0),
   };
@@ -197,7 +224,9 @@ test('static capability contract: navigation does not dynamically toggle canDig 
 
   // 1. HAND is free -> canDig remains false (does not auto-enable)
   board.setRuntime({
-    activeRuns: {}, results: {}, cooldowns: {},
+    activeRuns: {},
+    results: {},
+    cooldowns: {},
     lockedResources: { MOVE: 'run-f1', LOOK: 'run-f1', HAND: null, INVENTORY: null, VOICE: null },
   });
   adapter.start(ctx);
@@ -205,15 +234,25 @@ test('static capability contract: navigation does not dynamically toggle canDig 
 
   // 2. HAND gets locked (e.g. RoutineEat running) -> canDig remains false
   board.setRuntime({
-    activeRuns: {}, results: {}, cooldowns: {},
-    lockedResources: { MOVE: 'run-f1', LOOK: 'run-f1', HAND: 'run-eat-1', INVENTORY: 'run-eat-1', VOICE: null },
+    activeRuns: {},
+    results: {},
+    cooldowns: {},
+    lockedResources: {
+      MOVE: 'run-f1',
+      LOOK: 'run-f1',
+      HAND: 'run-eat-1',
+      INVENTORY: 'run-eat-1',
+      VOICE: null,
+    },
   });
   adapter.update!(ctx);
   assert.equal(fakeBot.pathfinder.movements.canDig, false);
 
   // 3. HAND unlocked again -> canDig remains false
   board.setRuntime({
-    activeRuns: {}, results: {}, cooldowns: {},
+    activeRuns: {},
+    results: {},
+    cooldowns: {},
     lockedResources: { MOVE: 'run-f1', LOOK: 'run-f1', HAND: null, INVENTORY: null, VOICE: null },
   });
   adapter.update!(ctx);
@@ -226,9 +265,17 @@ test('inventory adapter: RoutineEat equips food to hand and calls consume', asyn
   let deactivated = false;
 
   const fakeBot = {
-    equip(item: any, dest: string) { equipCalls.push({ item, dest }); return Promise.resolve(); },
-    consume() { consumed = true; return Promise.resolve(); },
-    deactivateItem() { deactivated = true; },
+    equip(item: any, dest: string) {
+      equipCalls.push({ item, dest });
+      return Promise.resolve();
+    },
+    consume() {
+      consumed = true;
+      return Promise.resolve();
+    },
+    deactivateItem() {
+      deactivated = true;
+    },
     inventory: {
       items: () => [{ type: 10, name: 'bread', slot: 20 }],
       slots: [],
@@ -242,13 +289,21 @@ test('inventory adapter: RoutineEat equips food to hand and calls consume', asyn
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'RoutineEat', runId: 'run-eat', actionType: 'RoutineEat',
-    targetId: null, priority: 60, requiredResources: ['HAND', 'INVENTORY'], params: {},
+    nodeId: 'RoutineEat',
+    runId: 'run-eat',
+    actionType: 'RoutineEat',
+    targetId: null,
+    priority: 60,
+    requiredResources: ['HAND', 'INVENTORY'],
+    params: {},
   };
 
   let active = true;
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => active,
     getSnapshot: () => board.snapshot(0),
   };
@@ -271,8 +326,13 @@ test('inventory adapter: EquipBest equips armor upgrades and best weapon', async
   const equipCalls: Array<{ item: any; dest: string }> = [];
 
   const fakeBot = {
-    equip(item: any, dest: string) { equipCalls.push({ item, dest }); return Promise.resolve(); },
-    consume() { return Promise.resolve(); },
+    equip(item: any, dest: string) {
+      equipCalls.push({ item, dest });
+      return Promise.resolve();
+    },
+    consume() {
+      return Promise.resolve();
+    },
     inventory: {
       items: () => [
         { type: 202, name: 'iron_chestplate', slot: 20 },
@@ -280,7 +340,11 @@ test('inventory adapter: EquipBest equips armor upgrades and best weapon', async
         { type: 301, name: 'diamond_sword', slot: 22 },
       ],
       slots: [
-        null, null, null, null, null,
+        null,
+        null,
+        null,
+        null,
+        null,
         null, // slot 5 head
         { type: 200, name: 'leather_chestplate', slot: 6 }, // slot 6 torso
         null, // slot 7 legs
@@ -298,13 +362,21 @@ test('inventory adapter: EquipBest equips armor upgrades and best weapon', async
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'EquipBest', runId: 'run-equip', actionType: 'EquipBest',
-    targetId: null, priority: 50, requiredResources: ['HAND', 'INVENTORY'], params: {},
+    nodeId: 'EquipBest',
+    runId: 'run-equip',
+    actionType: 'EquipBest',
+    targetId: null,
+    priority: 50,
+    requiredResources: ['HAND', 'INVENTORY'],
+    params: {},
   };
 
   let active = true;
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => active,
     getSnapshot: () => board.snapshot(0),
   };

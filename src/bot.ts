@@ -25,7 +25,12 @@ export interface CompanionPort extends PerceptionSource {
 export function attachCompanion(
   bot: CompanionPort,
   owner: string,
-  options: { adapters?: AdapterRegistry; now?: () => number; logger?: Logger; storagePath?: string } = {}
+  options: {
+    adapters?: AdapterRegistry;
+    now?: () => number;
+    logger?: Logger;
+    storagePath?: string;
+  } = {}
 ) {
   const logger = options.logger;
   const board = createBlackboard(owner);
@@ -47,7 +52,7 @@ export function attachCompanion(
       chat.enqueue('Arrived at base.');
       runner.requestUrgentTick();
     },
-    onSpawnSet: (pos) => {
+    onSpawnSet: pos => {
       perception.setSpawnPoint(pos);
       const msg = `Spawn point set to (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`;
       logger?.info(`[spawn] ${msg}`);
@@ -70,52 +75,69 @@ export function attachCompanion(
   };
   const inventory = createInventoryAdapters(bot as any, logger);
   const combat = createCombatAdapter(bot as any, logger, {
-    isThreat: (targetId) => {
+    isThreat: targetId => {
       const entity = (bot as any).entities?.[targetId];
       if (entity && isHostileMob(entity)) return true;
       return perception.isThreat(targetId);
     },
-    onAttack: (targetId) => {
+    onAttack: targetId => {
       perception.notifyAttack(targetId);
       sample();
       runner.requestUrgentTick();
     },
   });
-  const hasPathfinderOrPlugin = !!(bot as any).pathfinder || typeof (bot as any).loadPlugin === 'function';
-  const navigationAdapters = hasPathfinderOrPlugin ? {
-    NormalFollow: navigation.normalFollow,
-    CatchUpFollow: navigation.catchUpFollow,
-    PickupItem: navigation.pickupItem,
-    Retreat: navigation.retreat,
-    ComeOnce: navigation.comeOnce,
-    ReturnToBase: navigation.returnToBase,
-    SetSpawn: navigation.setSpawn,
-  } : {};
+  const hasPathfinderOrPlugin =
+    !!(bot as any).pathfinder || typeof (bot as any).loadPlugin === 'function';
+  const navigationAdapters = hasPathfinderOrPlugin
+    ? {
+        NormalFollow: navigation.normalFollow,
+        CatchUpFollow: navigation.catchUpFollow,
+        PickupItem: navigation.pickupItem,
+        Retreat: navigation.retreat,
+        ComeOnce: navigation.comeOnce,
+        ReturnToBase: navigation.returnToBase,
+        SetSpawn: navigation.setSpawn,
+      }
+    : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,
     EmergencyEat: inventory.emergencyEat,
     EquipBest: inventory.equipBest,
   };
-  const executor = createExecutor(createArbiter(), {
-    Idle: () => ({ start() {}, cancel() {} }),
-    Chat: chat.adapter,
-    Combat: combat,
-    ...navigationAdapters,
-    ...inventoryAdapters,
-    ...options.adapters,
-  }, logger);
-  const tree = createCompanionTree(executor.availableActions(), { onNavigationFailed: handleNavigationFailed, logger });
-  const runner = createRunner({ board, executor, tree, ...(options.now ? { now: options.now } : {}),
+  const executor = createExecutor(
+    createArbiter(),
+    {
+      Idle: () => ({ start() {}, cancel() {} }),
+      Chat: chat.adapter,
+      Combat: combat,
+      ...navigationAdapters,
+      ...inventoryAdapters,
+      ...options.adapters,
+    },
+    logger
+  );
+  const tree = createCompanionTree(executor.availableActions(), {
+    onNavigationFailed: handleNavigationFailed,
+    logger,
+  });
+  const runner = createRunner({
+    board,
+    executor,
+    tree,
+    ...(options.now ? { now: options.now } : {}),
     collectRequests: chat.requests,
     onStatus(snapshot) {
-      const actions = Object.values(snapshot.runtime.activeRuns).filter(run => run.status === 'RUNNING').map(run => run.actionType);
+      const actions = Object.values(snapshot.runtime.activeRuns)
+        .filter(run => run.status === 'RUNNING')
+        .map(run => run.actionType);
       const baseStr = snapshot.world.base
         ? `(${snapshot.world.base.x.toFixed(1)},${snapshot.world.base.y.toFixed(1)},${snapshot.world.base.z.toFixed(1)})`
         : 'None';
       const spawnStr = snapshot.world.spawnPoint
         ? `(${snapshot.world.spawnPoint.x.toFixed(1)},${snapshot.world.spawnPoint.y.toFixed(1)},${snapshot.world.spawnPoint.z.toFixed(1)})`
         : 'None';
-      const weapon = snapshot.world.inventory.bestWeapon?.name ?? (bot as any).heldItem?.name ?? 'None';
+      const weapon =
+        snapshot.world.inventory.bestWeapon?.name ?? (bot as any).heldItem?.name ?? 'None';
       const digStr = snapshot.intent.canDig ? 'on' : 'off';
       const bridgeStr = snapshot.intent.allowBridge ? 'on' : 'off';
       const msg = `Intent=${snapshot.intent.mode} HP=${snapshot.world.self.health}/20 Food=${snapshot.world.self.food}/20 Action=${actions.join(',') || 'Idle'} Base=${baseStr} Spawn=${spawnStr} Weapon=${weapon} FreeSlots=${snapshot.world.inventory.freeSlots} Dig=${digStr} Bridge=${bridgeStr}`;
@@ -147,9 +169,21 @@ export function attachCompanion(
     runner.resume();
     sample();
   }
-  function respawn() { if (active) reset(); }
-  function physicsTick() { if (active) { sample(); runner.physicsTick(); } }
-  function health() { if (active) { sample(); runner.requestUrgentTick(); } }
+  function respawn() {
+    if (active) reset();
+  }
+  function physicsTick() {
+    if (active) {
+      sample();
+      runner.physicsTick();
+    }
+  }
+  function health() {
+    if (active) {
+      sample();
+      runner.requestUrgentTick();
+    }
+  }
   function entitySwingArm(entity: any) {
     if (entity?.id != null) {
       recentArmSwings.set(entity.id, Date.now());
@@ -162,13 +196,21 @@ export function attachCompanion(
       let attacker = source;
       if (!attacker && (bot as any).entities) {
         const selfPos = (bot as any).entity?.position;
-        const candidates = Object.values((bot as any).entities as Record<string, any>).filter((e: any) => {
-          if (!e?.position || e.id === (bot as any).entity?.id) return false;
-          const isPlayer = e.type === 'player' || !!e.username;
-          if (!isPlayer) return false;
-          const dist = selfPos ? Math.hypot(e.position.x - selfPos.x, e.position.y - selfPos.y, e.position.z - selfPos.z) : Infinity;
-          return dist <= 4.5;
-        });
+        const candidates = Object.values((bot as any).entities as Record<string, any>).filter(
+          (e: any) => {
+            if (!e?.position || e.id === (bot as any).entity?.id) return false;
+            const isPlayer = e.type === 'player' || !!e.username;
+            if (!isPlayer) return false;
+            const dist = selfPos
+              ? Math.hypot(
+                  e.position.x - selfPos.x,
+                  e.position.y - selfPos.y,
+                  e.position.z - selfPos.z
+                )
+              : Infinity;
+            return dist <= 4.5;
+          }
+        );
         candidates.sort((a: any, b: any) => {
           const swingA = recentArmSwings.get(a.id) ?? 0;
           const swingB = recentArmSwings.get(b.id) ?? 0;
@@ -183,12 +225,16 @@ export function attachCompanion(
           const attackerName = (attacker.username ?? attacker.name ?? '').trim().toLowerCase();
           const isOwner = !!owner && attackerName === owner.trim().toLowerCase();
           if (isOwner) {
-            logger?.info('[combat] owner attacked bot: unfollowing (intent -> STAY) and counter-attacking once (3s threat)');
+            logger?.info(
+              '[combat] owner attacked bot: unfollowing (intent -> STAY) and counter-attacking once (3s threat)'
+            );
             runner.enqueue({ type: 'intent', mode: 'STAY' });
             chat.enqueue('Intent=STAY');
             perception.recordAttacker(attacker, { durationMs: 3000, maxHits: 1, isOwner: true });
           } else {
-            logger?.info(`[combat] non-owner player "${attacker.username ?? attacker.id}" attacked bot: counter-attacking for 30s`);
+            logger?.info(
+              `[combat] non-owner player "${attacker.username ?? attacker.id}" attacked bot: counter-attacking for 30s`
+            );
             perception.recordAttacker(attacker, { durationMs: 30000, isOwner: false });
           }
         }
@@ -243,7 +289,9 @@ export function attachCompanion(
         runner.requestUrgentTick();
         return;
       }
-      logger?.info(`[chat] accepted command: come to (${masterPos.x.toFixed(1)}, ${masterPos.y.toFixed(1)}, ${masterPos.z.toFixed(1)})`);
+      logger?.info(
+        `[chat] accepted command: come to (${masterPos.x.toFixed(1)}, ${masterPos.y.toFixed(1)}, ${masterPos.z.toFixed(1)})`
+      );
       runner.enqueue({ type: 'intent', mode: 'COME', targetPosition: masterPos });
       chat.enqueue('Intent=COME');
       runner.requestUrgentTick();
@@ -323,15 +371,25 @@ export function startBot(env: NodeJS.ProcessEnv = process.env) {
   const owner = env.BOT_OWNER || '';
   // if (!owner || !/^[A-Za-z0-9_]{1,16}$/.test(owner)) throw new Error('Set BOT_OWNER to your Minecraft username (1–16 letters, digits or underscores)');
   const port = Number(env.BOT_PORT ?? '25565');
-  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('BOT_PORT must be between 1 and 65535');
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error('BOT_PORT must be between 1 and 65535');
   const botName = env.BOT_USERNAME ?? 'CompanionBot';
   const logger = createLogger(botName);
-  logger.info(`Starting CompanionBot for owner="${owner}" on ${env.BOT_HOST ?? '127.0.0.1'}:${port}`);
+  logger.info(
+    `Starting CompanionBot for owner="${owner}" on ${env.BOT_HOST ?? '127.0.0.1'}:${port}`
+  );
   logger.info(`File logging active at: ${logger.logFilePath}`);
-  const bot = createBot({ host: env.BOT_HOST ?? '127.0.0.1', port, username: botName, auth: 'offline' });
+  const bot = createBot({
+    host: env.BOT_HOST ?? '127.0.0.1',
+    port,
+    username: botName,
+    auth: 'offline',
+  });
   bot.loadPlugin(pathfinder);
   const companion = attachCompanion(bot, owner, { logger, storagePath: DEFAULT_STATE_FILE });
-  bot.on('spawn', () => logger.info(`[companion] spawned; owner=${owner}; Stage 3 (follow active)`));
+  bot.on('spawn', () =>
+    logger.info(`[companion] spawned; owner=${owner}; Stage 3 (follow active)`)
+  );
   bot.on('death', () => logger.warn('[companion] died!'));
   bot.on('respawn', () => logger.info('[companion] respawned'));
   bot.on('error', error => logger.error('[companion] error: ' + error.message));

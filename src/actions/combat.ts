@@ -2,7 +2,13 @@ import { goals } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
 import { getWeaponDamage } from '../perception.ts';
-import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
+import type {
+  ActionAdapter,
+  ActionContext,
+  ActionRequest,
+  ActionResult,
+  AdapterFactory,
+} from '../execution/types.ts';
 
 const { GoalFollow } = goals;
 
@@ -77,13 +83,19 @@ export function createCombatAdapter(
         const snapshot = ctx.getSnapshot();
         const bestWeapon = snapshot.world.inventory.bestWeapon;
         if (bestWeapon && typeof bot.equip === 'function') {
-          const heldItem = bot.heldItem ?? (bot.inventory?.slots ? bot.inventory.slots[36 + (bot.quickBarSlot ?? 0)] : null);
+          const heldItem =
+            bot.heldItem ??
+            (bot.inventory?.slots ? bot.inventory.slots[36 + (bot.quickBarSlot ?? 0)] : null);
           const currentDamage = heldItem ? getWeaponDamage(heldItem.name) : 0;
           if (bestWeapon.attackDamage > currentDamage) {
             const items = typeof bot.inventory.items === 'function' ? bot.inventory.items() : [];
-            const weaponItem = items.find((i: any) => i.name === bestWeapon.name || (i.type ?? i.id) === bestWeapon.itemId);
+            const weaponItem = items.find(
+              (i: any) => i.name === bestWeapon.name || (i.type ?? i.id) === bestWeapon.itemId
+            );
             if (weaponItem) {
-              logger?.info(`[combat] equipping weapon ${weaponItem.name} (dmg=${bestWeapon.attackDamage} > held=${currentDamage})`);
+              logger?.info(
+                `[combat] equipping weapon ${weaponItem.name} (dmg=${bestWeapon.attackDamage} > held=${currentDamage})`
+              );
               try {
                 await bot.equip(weaponItem, 'hand');
               } catch (err: any) {
@@ -101,7 +113,9 @@ export function createCombatAdapter(
         }
         activeGoal = new GoalFollow(target as any, 2.5);
         bot.pathfinder.setGoal(activeGoal, true);
-        logger?.info(`[combat] initiated GoalFollow chase for target ${target.name ?? targetId} (id=${targetId})`);
+        logger?.info(
+          `[combat] initiated GoalFollow chase for target ${target.name ?? targetId} (id=${targetId})`
+        );
       },
 
       update(ctx: ActionContext): void | ActionResult {
@@ -114,7 +128,11 @@ export function createCombatAdapter(
 
         const target = (bot.entities as any)[targetId];
         // Target defeated or removed check
-        if (!target || target.isValid === false || (target.health !== undefined && target.health <= 0)) {
+        if (
+          !target ||
+          target.isValid === false ||
+          (target.health !== undefined && target.health <= 0)
+        ) {
           logger?.info(`[combat] target ${targetId} eliminated or despawned`);
           bot.pathfinder?.setGoal(null);
           return { status: 'SUCCESS' };
@@ -136,14 +154,21 @@ export function createCombatAdapter(
 
         // Disengage if target out of combatExit range (16 blocks)
         if (dist > THRESHOLDS.combatExit) {
-          logger?.info(`[combat] target distance ${dist.toFixed(1)} exceeded combatExit (${THRESHOLDS.combatExit})`);
+          logger?.info(
+            `[combat] target distance ${dist.toFixed(1)} exceeded combatExit (${THRESHOLDS.combatExit})`
+          );
           bot.pathfinder?.setGoal(null);
           return { status: 'FAILURE', reason: 'Target out of combat range' };
         }
 
         // Disengage in FOLLOW mode if master distance exceeds limit (24 blocks)
-        if (snapshot.intent.mode === 'FOLLOW' && snapshot.world.master.distance > THRESHOLDS.combatMasterLimit) {
-          logger?.info(`[combat] master distance ${snapshot.world.master.distance.toFixed(1)} exceeded combatMasterLimit (${THRESHOLDS.combatMasterLimit})`);
+        if (
+          snapshot.intent.mode === 'FOLLOW' &&
+          snapshot.world.master.distance > THRESHOLDS.combatMasterLimit
+        ) {
+          logger?.info(
+            `[combat] master distance ${snapshot.world.master.distance.toFixed(1)} exceeded combatMasterLimit (${THRESHOLDS.combatMasterLimit})`
+          );
           bot.pathfinder?.setGoal(null);
           return { status: 'FAILURE', reason: 'Master distance limit exceeded' };
         }
@@ -154,13 +179,19 @@ export function createCombatAdapter(
           if (now - lastAttackTime >= 550) {
             lastAttackTime = now;
             const targetHeight = target.height ?? 1.8;
-            const eyePos = new Vec3(target.position.x, target.position.y + targetHeight * 0.85, target.position.z);
+            const eyePos = new Vec3(
+              target.position.x,
+              target.position.y + targetHeight * 0.85,
+              target.position.z
+            );
             if (typeof bot.lookAt === 'function') {
               bot.lookAt(eyePos, true).catch(() => {});
             }
 
             if (typeof bot.attack === 'function' && (bot.entities as any)[targetId]) {
-              logger?.info(`[combat] attacking target ${target.name ?? targetId} at dist=${dist.toFixed(1)}`);
+              logger?.info(
+                `[combat] attacking target ${target.name ?? targetId} at dist=${dist.toFixed(1)}`
+              );
               bot.attack(target as any);
               options?.onAttack?.(targetId);
             }

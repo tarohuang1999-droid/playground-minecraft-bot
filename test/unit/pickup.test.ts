@@ -17,7 +17,12 @@ test('pickup perception: detects drops within 5 blocks and skips distant, non-it
     players: { dakaz: { entity: { id: 2, position: { x: 2, y: 64, z: 2 } } } },
     entities: {
       1: { id: 1, position: { x: 0, y: 64, z: 0 } }, // self
-      10: { id: 10, name: 'item', position: { x: 2, y: 64, z: 0 }, getDroppedItem: () => ({ name: 'iron_ingot' }) }, // within 5 blocks
+      10: {
+        id: 10,
+        name: 'item',
+        position: { x: 2, y: 64, z: 0 },
+        getDroppedItem: () => ({ name: 'iron_ingot' }),
+      }, // within 5 blocks
       11: { id: 11, name: 'Item', position: { x: 0, y: 64, z: 4.5 }, displayName: 'diamond' }, // within 5 blocks
       12: { id: 12, name: 'item', position: { x: 8, y: 64, z: 0 } }, // > 5 blocks (pickupRadius is 5)
       13: { id: 13, name: 'zombie', position: { x: 1, y: 64, z: 0 } }, // not an item
@@ -50,7 +55,13 @@ test('work subtree: triggers PickupItem in non-follow (STAY/IDLE) state when nea
   world.self.position = { x: 0, y: 64, z: 0 };
   world.inventory.freeSlots = 3;
   world.nearbyDrops = [
-    { entityId: 101, name: 'item', itemName: 'bread', position: { x: 2, y: 64, z: 0 }, distance: 2 },
+    {
+      entityId: 101,
+      name: 'item',
+      itemName: 'bread',
+      position: { x: 2, y: 64, z: 0 },
+      distance: 2,
+    },
   ];
   board.setWorld(world);
 
@@ -76,7 +87,13 @@ test('work subtree: in FOLLOW mode, PickupItem (30) preempts NormalFollow (20) i
   world.master = { username: 'dakaz', entityId: 2, position: { x: 4, y: 64, z: 0 }, distance: 4 };
   world.inventory.freeSlots = 2;
   world.nearbyDrops = [
-    { entityId: 202, name: 'item', itemName: 'apple', position: { x: 1, y: 64, z: 1 }, distance: 1.41 },
+    {
+      entityId: 202,
+      name: 'item',
+      itemName: 'apple',
+      position: { x: 1, y: 64, z: 1 },
+      distance: 1.41,
+    },
   ];
   board.setWorld(world);
 
@@ -86,7 +103,11 @@ test('work subtree: in FOLLOW mode, PickupItem (30) preempts NormalFollow (20) i
   const pickupReq = tickResult.requests.find(r => r.actionType === 'PickupItem');
   const followReq = tickResult.requests.find(r => r.actionType === 'NormalFollow');
   assert.ok(pickupReq, 'PickupItem should preempt NormalFollow');
-  assert.equal(followReq, undefined, 'NormalFollow should not be requested when PickupItem is active');
+  assert.equal(
+    followReq,
+    undefined,
+    'NormalFollow should not be requested when PickupItem is active'
+  );
   assert.equal(pickupReq?.targetId, 202);
 });
 
@@ -102,7 +123,13 @@ test('work subtree: CatchUpFollow (40) preempts PickupItem (30) when master is f
   world.master = { username: 'dakaz', entityId: 2, position: { x: 20, y: 64, z: 0 }, distance: 20 };
   world.inventory.freeSlots = 2;
   world.nearbyDrops = [
-    { entityId: 202, name: 'item', itemName: 'apple', position: { x: 1, y: 64, z: 1 }, distance: 1.41 },
+    {
+      entityId: 202,
+      name: 'item',
+      itemName: 'apple',
+      position: { x: 1, y: 64, z: 1 },
+      distance: 1.41,
+    },
   ];
   board.setWorld(world);
 
@@ -127,7 +154,13 @@ test('work subtree: resumes NormalFollow immediately after item is picked up', (
   world.master = { username: 'dakaz', entityId: 2, position: { x: 4, y: 64, z: 0 }, distance: 4 };
   world.inventory.freeSlots = 2;
   world.nearbyDrops = [
-    { entityId: 303, name: 'item', itemName: 'emerald', position: { x: 1, y: 64, z: 0 }, distance: 1 },
+    {
+      entityId: 303,
+      name: 'item',
+      itemName: 'emerald',
+      position: { x: 1, y: 64, z: 0 },
+      distance: 1,
+    },
   ];
   board.setWorld(world);
 
@@ -151,7 +184,9 @@ test('pickup adapter: sets GoalNear on start, returns SUCCESS when item entity d
   const goalsSet: Array<{ goal: any; dynamic?: boolean | undefined }> = [];
   const fakeBot = {
     pathfinder: {
-      setGoal(goal: any, dynamic?: boolean) { goalsSet.push({ goal, dynamic }); },
+      setGoal(goal: any, dynamic?: boolean) {
+        goalsSet.push({ goal, dynamic });
+      },
     },
     entities: {
       50: { id: 50, position: { x: 3, y: 64, z: 3 } },
@@ -165,13 +200,21 @@ test('pickup adapter: sets GoalNear on start, returns SUCCESS when item entity d
   board.setWorld(world);
 
   const request: ActionRequest = {
-    nodeId: 'PickupItem', runId: 'run-p1', actionType: 'PickupItem',
-    targetId: 50, priority: 30, requiredResources: ['MOVE', 'LOOK'], params: { itemName: 'gold_ingot' },
+    nodeId: 'PickupItem',
+    runId: 'run-p1',
+    actionType: 'PickupItem',
+    targetId: 50,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: { itemName: 'gold_ingot' },
   };
 
   let active = true;
   const ctx: ActionContext = {
-    request, token: 1, generation: 0, signal: new AbortController().signal,
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
     isActive: () => active,
     getSnapshot: () => board.snapshot(0),
   };
@@ -212,8 +255,13 @@ test('pickup timeout and failure triggers 30-second cooldown in executor', () =>
   const snapshot = board.snapshot(100);
 
   const request: ActionRequest = {
-    nodeId: 'PickupItem', runId: 'pickup-run-1', actionType: 'PickupItem',
-    targetId: 777, priority: 30, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'PickupItem',
+    runId: 'pickup-run-1',
+    actionType: 'PickupItem',
+    targetId: 777,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
 
   // Reconcile and start

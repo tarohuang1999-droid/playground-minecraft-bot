@@ -3,10 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { Vec3 } from 'vec3';
 import { createBlackboard, createWorld } from '../../src/blackboard.ts';
-import {
-  createNavigation,
-  createNavigationTaskState,
-} from '../../src/actions/navigation.ts';
+import { createNavigation } from '../../src/actions/navigation.ts';
 import type { ActionContext, ActionRequest } from '../../src/execution/types.ts';
 import { workSubtree } from '../../src/bt/subtrees/work.ts';
 import { createTree } from '../../src/bt/nodes.ts';
@@ -30,7 +27,7 @@ class FakeRecoveryBot extends EventEmitter {
   };
 
   pathfinder = {
-    setGoal: (goal: unknown, dynamic?: boolean) => {
+    setGoal: (goal: unknown, _dynamic?: boolean) => {
       this.goalsSet.push(goal);
     },
     stop: () => {
@@ -50,7 +47,9 @@ class FakeRecoveryBot extends EventEmitter {
   }
 
   blockAt(pos: any) {
-    const p = pos.floored ? pos.floored() : new Vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
+    const p = pos.floored
+      ? pos.floored()
+      : new Vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
     const key = `${p.x},${p.y},${p.z}`;
     return this.blocks.get(key) ?? { name: 'air', boundingBox: 'empty' };
   }
@@ -70,12 +69,21 @@ test('partial path_update extends search and does not reset Goal or trigger stal
   board.setWorld(world);
 
   const req: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-1', actionType: 'NormalFollow',
-    targetId: 2, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: {},
+    nodeId: 'NormalFollow',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: 2,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
   };
   const ctx: ActionContext = {
-    request: req, token: 1, generation: 0, signal: new AbortController().signal,
-    isActive: () => true, getSnapshot: () => board.snapshot(0),
+    request: req,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
   };
 
   const adapter = nav.normalFollow(req);
@@ -108,13 +116,21 @@ test('legal in-flight actions (digging, placing, door opening) and arrival do no
   board.setWorld(world);
 
   const req: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-1', actionType: 'NormalFollow',
-    targetId: 2, priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    nodeId: 'NormalFollow',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: 2,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
     params: { canDig: true, allowBridge: true, missionId: 'm1' },
   };
   const ctx: ActionContext = {
-    request: req, token: 1, generation: 0, signal: new AbortController().signal,
-    isActive: () => true, getSnapshot: () => board.snapshot(0),
+    request: req,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
   };
 
   const adapter = nav.normalFollow(req);
@@ -154,12 +170,21 @@ test('NormalFollow reports FAILURE upon 1500ms stall and invokes onNavigationFai
   board.setWorld(world);
 
   const req: ActionRequest = {
-    nodeId: 'NormalFollow', runId: 'run-1', actionType: 'NormalFollow',
-    targetId: 2, priority: 20, requiredResources: ['MOVE', 'LOOK'], params: { missionId: 'm1' },
+    nodeId: 'NormalFollow',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: 2,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: { missionId: 'm1' },
   };
   const ctx: ActionContext = {
-    request: req, token: 1, generation: 0, signal: new AbortController().signal,
-    isActive: () => true, getSnapshot: () => board.snapshot(0),
+    request: req,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
   };
 
   const adapter = nav.normalFollow(req);

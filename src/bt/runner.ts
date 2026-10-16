@@ -1,15 +1,24 @@
-import type { Blackboard, BlackboardSnapshot, IntentState, Position, WorldState } from '../blackboard.ts';
+import type {
+  Blackboard,
+  BlackboardSnapshot,
+  IntentState,
+  Position,
+  WorldState,
+} from '../blackboard.ts';
 import type { Executor } from '../execution/executor.ts';
 import type { ActionRequest } from '../execution/types.ts';
 import type { BehaviorTree } from './nodes.ts';
 
-export type RunnerEvent = { type: 'world'; world: WorldState }
+export type RunnerEvent =
+  | { type: 'world'; world: WorldState }
   | { type: 'intent'; mode: IntentState['mode']; targetPosition?: Position | null }
   | { type: 'set_dig'; enabled: boolean }
   | { type: 'set_bridge'; enabled: boolean }
   | { type: 'status' };
 export function createRunner(options: {
-  board: Blackboard; executor: Executor; tree: BehaviorTree;
+  board: Blackboard;
+  executor: Executor;
+  tree: BehaviorTree;
   now?: () => number;
   schedule?: (callback: () => void) => void;
   collectRequests?: (snapshot: BlackboardSnapshot) => ActionRequest[];
@@ -52,10 +61,14 @@ export function createRunner(options: {
       if (!enabled || generation !== executor.generation()) return;
       executor.reconcile(requests, snapshot, time);
       board.setRuntime(executor.runtime());
-    } finally { deciding = false; }
+    } finally {
+      deciding = false;
+    }
   }
   return {
-    enqueue(event: RunnerEvent) { if (enabled) events.set(event.type, structuredClone(event)); },
+    enqueue(event: RunnerEvent) {
+      if (enabled) events.set(event.type, structuredClone(event));
+    },
     requestUrgentTick() {
       if (!enabled) return;
       urgent = true;
@@ -74,12 +87,22 @@ export function createRunner(options: {
       physicsTicks++;
       if (physicsTicks % 2 === 0 || released || urgent) decide();
     },
-    resume() { enabled = true; physicsTicks = 0; },
-    pause() {
-      enabled = false; urgent = false; events.clear();
-      executor.reset(); tree.halt(); board.reset(executor.generation());
+    resume() {
+      enabled = true;
+      physicsTicks = 0;
     },
-    snapshot() { board.setRuntime(executor.runtime()); return board.snapshot(now()); },
+    pause() {
+      enabled = false;
+      urgent = false;
+      events.clear();
+      executor.reset();
+      tree.halt();
+      board.reset(executor.generation());
+    },
+    snapshot() {
+      board.setRuntime(executor.runtime());
+      return board.snapshot(now());
+    },
   };
 }
 export type Runner = ReturnType<typeof createRunner>;

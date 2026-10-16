@@ -10,7 +10,11 @@ export type CommandEvent =
   | { type: 'command_usage'; message: string }
   | { type: 'unknown'; raw: string };
 
-export function parseCommand(owner: string, username: string, message: string): CommandEvent | null {
+export function parseCommand(
+  owner: string,
+  username: string,
+  message: string
+): CommandEvent | null {
   if (username.trim().toLowerCase() !== owner.trim().toLowerCase()) return null;
   const trimmed = message.trim();
   if (!trimmed.startsWith('!')) return null;
@@ -48,4 +52,3 @@ export function parseCommand(owner: string, username: string, message: string): 
 
   return { type: 'unknown', raw: clean };
 }
-

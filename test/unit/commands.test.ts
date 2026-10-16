@@ -15,15 +15,27 @@ test('commands parser: ignores plain text and non-owner, parses ! commands', () 
   assert.strictEqual(parseCommand('dakaz', 'stranger', '!status'), null);
 
   // 3. Valid commands with '!'
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!follow'), { type: 'intent', mode: 'FOLLOW' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!unfollow'), { type: 'intent', mode: 'STAY' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!follow'), {
+    type: 'intent',
+    mode: 'FOLLOW',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!unfollow'), {
+    type: 'intent',
+    mode: 'STAY',
+  });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!stop'), { type: 'intent', mode: 'STAY' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!status'), { type: 'status' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!state'), { type: 'status' });
 
   // 4. Case and whitespace insensitivity
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !FoLLoW  '), { type: 'intent', mode: 'FOLLOW' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!UNFOLLOW'), { type: 'intent', mode: 'STAY' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !FoLLoW  '), {
+    type: 'intent',
+    mode: 'FOLLOW',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!UNFOLLOW'), {
+    type: 'intent',
+    mode: 'STAY',
+  });
 
   // 5. !base command
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!base'), { type: 'set_base' });
@@ -34,24 +46,57 @@ test('commands parser: ignores plain text and non-owner, parses ! commands', () 
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !COME  '), { type: 'come' });
 
   // 7. !return command
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!return'), { type: 'intent', mode: 'RETURN' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !RETURN  '), { type: 'intent', mode: 'RETURN' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!return'), {
+    type: 'intent',
+    mode: 'RETURN',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !RETURN  '), {
+    type: 'intent',
+    mode: 'RETURN',
+  });
 
   // 8. !dig and !bridge commands
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig on'), { type: 'set_dig', enabled: true });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig off'), { type: 'set_dig', enabled: false });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge on'), { type: 'set_bridge', enabled: true });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge off'), { type: 'set_bridge', enabled: false });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig maybe'), { type: 'command_usage', message: 'Usage: !dig on|off' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig'), { type: 'command_usage', message: 'Usage: !dig on|off' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge fast'), { type: 'command_usage', message: 'Usage: !bridge on|off' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge'), { type: 'command_usage', message: 'Usage: !bridge on|off' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig on'), {
+    type: 'set_dig',
+    enabled: true,
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig off'), {
+    type: 'set_dig',
+    enabled: false,
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge on'), {
+    type: 'set_bridge',
+    enabled: true,
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge off'), {
+    type: 'set_bridge',
+    enabled: false,
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig maybe'), {
+    type: 'command_usage',
+    message: 'Usage: !dig on|off',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dig'), {
+    type: 'command_usage',
+    message: 'Usage: !dig on|off',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge fast'), {
+    type: 'command_usage',
+    message: 'Usage: !bridge on|off',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!bridge'), {
+    type: 'command_usage',
+    message: 'Usage: !bridge on|off',
+  });
   assert.strictEqual(parseCommand('dakaz', 'stranger', '!dig on'), null);
   assert.strictEqual(parseCommand('dakaz', 'stranger', '!bridge on'), null);
 
   // 9. Unknown '!' command returns unknown type with raw name
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!foo'), { type: 'unknown', raw: 'foo' });
-  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dance_now'), { type: 'unknown', raw: 'dance_now' });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dance_now'), {
+    type: 'unknown',
+    raw: 'dance_now',
+  });
 });
 
 test('commands integration: unknown !command sends "command unknown" to chat', () => {
@@ -63,7 +108,9 @@ test('commands integration: unknown !command sends "command unknown" to chat', (
     entities: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new ChatTestBot();
@@ -97,7 +144,9 @@ test('commands integration: !base sets base coordinate and confirms in chat', ()
       assert.strictEqual(typeof point.x, 'number');
       return null;
     };
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new BaseTestBot();
@@ -133,7 +182,9 @@ test('commands integration: !state and !status output comprehensive status telem
     inventory = { emptySlotCount: () => 28, items: () => [], slots: [] };
     heldItem: any = { name: 'iron_sword' };
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new StateTestBot();
@@ -168,10 +219,14 @@ test('commands integration: !come navigates to static coordinates and transition
     sent: string[] = [];
     goalsSet: any[] = [];
     pathfinder = {
-      setGoal: (goal: any) => { this.goalsSet.push(goal); },
+      setGoal: (goal: any) => {
+        this.goalsSet.push(goal);
+      },
       isMoving: () => false,
     };
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new ComeTestBot();
@@ -240,7 +295,9 @@ test('commands integration: !come without visible master replies "Cannot see you
     entities: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new BlindTestBot();
@@ -267,7 +324,9 @@ test('commands integration: !return without base or spawn point replies "No base
     entities: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new NoBaseReturnBot();
@@ -293,19 +352,29 @@ test('commands integration: !return navigates to base, resumes after combat pree
     food = 20;
     players: Record<string, any> = {};
     entities: Record<number, any> = {};
-    inventory = { emptySlotCount: () => 36, items: () => [{ type: 100, name: 'iron_sword', id: 100 }], slots: [] };
+    inventory = {
+      emptySlotCount: () => 36,
+      items: () => [{ type: 100, name: 'iron_sword', id: 100 }],
+      slots: [],
+    };
     heldItem: any = { name: 'iron_sword' };
     sent: string[] = [];
     goalsSet: any[] = [];
     attacks: any[] = [];
     pathfinder = {
-      setGoal: (goal: any) => { this.goalsSet.push(goal); },
+      setGoal: (goal: any) => {
+        this.goalsSet.push(goal);
+      },
       isMoving: () => false,
     };
-    attack = (target: any) => { this.attacks.push(target); };
+    attack = (target: any) => {
+      this.attacks.push(target);
+    };
     equip = async () => {};
     lookAt = async () => {};
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new ReturnTestBot();
@@ -333,7 +402,13 @@ test('commands integration: !return navigates to base, resumes after combat pree
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /ReturnToBase/);
 
   // 3. Combat preempts ReturnToBase: A hostile zombie spawns nearby (dist = 5 blocks)
-  const zombie = { id: 99, name: 'zombie', position: { x: 5, y: 64, z: 0 }, isValid: true, health: 20 };
+  const zombie = {
+    id: 99,
+    name: 'zombie',
+    position: { x: 5, y: 64, z: 0 },
+    isValid: true,
+    health: 20,
+  };
   bot.entities[99] = zombie;
   bot.emit('physicsTick');
   bot.emit('physicsTick');
@@ -378,7 +453,9 @@ test('commands integration: !dig and !bridge toggle switches independently, outp
     entities: Record<string, any> = {};
     inventory = { emptySlotCount: () => 36, items: () => [], slots: [] };
     sent: string[] = [];
-    chat(message: string) { this.sent.push(message); }
+    chat(message: string) {
+      this.sent.push(message);
+    }
   }
 
   const bot = new TestBot();
@@ -445,5 +522,3 @@ test('commands integration: !dig and !bridge toggle switches independently, outp
 
   companion.dispose();
 });
-
-

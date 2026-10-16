@@ -5,7 +5,15 @@ import { createArbiter } from '../../src/execution/arbiter.ts';
 import { createExecutor } from '../../src/execution/executor.ts';
 import type { ActionContext, ActionRequest, ActionResult } from '../../src/execution/types.ts';
 
-const req = (id: string, priority: number): ActionRequest => ({ nodeId: id, runId: id, actionType: 'Idle', targetId: null, priority, requiredResources: ['HAND'], params: {} });
+const req = (id: string, priority: number): ActionRequest => ({
+  nodeId: id,
+  runId: id,
+  actionType: 'Idle',
+  targetId: null,
+  priority,
+  requiredResources: ['HAND'],
+  params: {},
+});
 const snapshot = () => createBlackboard('owner').snapshot(0);
 
 test('one physics tick hands off despite a pending promise; stale continuation cannot act', async () => {
@@ -20,13 +28,17 @@ test('one physics tick hands off despite a pending promise; stale continuation c
         started.push(request.runId);
         if (request.runId !== 'old') return;
         oldContext = ctx;
-        return new Promise<ActionResult>(done => { resolve = done; }).then(result => {
+        return new Promise<ActionResult>(done => {
+          resolve = done;
+        }).then(result => {
           if (!ctx.isActive()) return;
           effects++;
           return result;
         });
       },
-      cancel() { cancelled.push(request.runId); },
+      cancel() {
+        cancelled.push(request.runId);
+      },
     }),
   });
   executor.reconcile([req('old', 20)], snapshot(), 0);
@@ -49,9 +61,15 @@ test('one physics tick hands off despite a pending promise; stale continuation c
 test('withdrawn waiting requests never start and reset invalidates the entire session', () => {
   const started: string[] = [];
   const contexts: ActionContext[] = [];
-  const executor = createExecutor(createArbiter(), { Idle: request => ({
-    start(ctx) { contexts.push(ctx); started.push(request.runId); }, cancel() {},
-  }) });
+  const executor = createExecutor(createArbiter(), {
+    Idle: request => ({
+      start(ctx) {
+        contexts.push(ctx);
+        started.push(request.runId);
+      },
+      cancel() {},
+    }),
+  });
   executor.reconcile([req('old', 10)], snapshot(), 0);
   executor.reconcile([req('waiting', 80)], snapshot(), 0);
   executor.advanceTick();
@@ -60,12 +78,22 @@ test('withdrawn waiting requests never start and reset invalidates the entire se
   executor.reconcile([req('current', 20)], snapshot(), 50);
   executor.reset();
   assert.equal(executor.generation(), 1);
-  assert.equal(contexts.every(ctx => !ctx.isActive()), true);
+  assert.equal(
+    contexts.every(ctx => !ctx.isActive()),
+    true
+  );
   assert.equal(executor.runtime().lockedResources.HAND, null);
 });
 
 test('cancel errors never silently release controls to another action', () => {
-  const executor = createExecutor(createArbiter(), { Idle: () => ({ start() {}, cancel() { throw new Error('cannot stop'); } }) });
+  const executor = createExecutor(createArbiter(), {
+    Idle: () => ({
+      start() {},
+      cancel() {
+        throw new Error('cannot stop');
+      },
+    }),
+  });
   executor.reconcile([req('old', 10)], snapshot(), 0);
   executor.reconcile([req('new', 80)], snapshot(), 0);
   executor.advanceTick();
@@ -76,13 +104,23 @@ test('cancel errors never silently release controls to another action', () => {
 
 test('a session reset during start prevents remaining winners from the old round starting', () => {
   const started: string[] = [];
-  const executor = createExecutor(createArbiter(), { Idle: request => ({
-    start() { started.push(request.runId); executor.reset(); }, cancel() {},
-  }) });
-  executor.reconcile([
-    { ...req('first', 20), requiredResources: ['MOVE'] },
-    { ...req('second', 10), requiredResources: ['HAND'] },
-  ], snapshot(), 0);
+  const executor = createExecutor(createArbiter(), {
+    Idle: request => ({
+      start() {
+        started.push(request.runId);
+        executor.reset();
+      },
+      cancel() {},
+    }),
+  });
+  executor.reconcile(
+    [
+      { ...req('first', 20), requiredResources: ['MOVE'] },
+      { ...req('second', 10), requiredResources: ['HAND'] },
+    ],
+    snapshot(),
+    0
+  );
   assert.deepEqual(started, ['first']);
   executor.reconcile([req('stale', 10)], snapshot(), 50);
   assert.deepEqual(started, ['first']);
@@ -91,10 +129,20 @@ test('a session reset during start prevents remaining winners from the old round
 test('partial preemption stops the whole combat run before retreat and eating acquire disjoint groups', () => {
   let stopped = 0;
   const started: string[] = [];
-  const executor = createExecutor(createArbiter(), { Idle: request => ({
-    start() { started.push(request.runId); }, cancel() { stopped++; },
-  }) });
-  const combat: ActionRequest = { ...req('combat', 80), requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'] };
+  const executor = createExecutor(createArbiter(), {
+    Idle: request => ({
+      start() {
+        started.push(request.runId);
+      },
+      cancel() {
+        stopped++;
+      },
+    }),
+  });
+  const combat: ActionRequest = {
+    ...req('combat', 80),
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+  };
   const retreat: ActionRequest = { ...req('retreat', 100), requiredResources: ['MOVE', 'LOOK'] };
   const eat: ActionRequest = { ...req('eat', 90), requiredResources: ['HAND', 'INVENTORY'] };
   executor.reconcile([combat], snapshot(), 0);
@@ -105,5 +153,11 @@ test('partial preemption stops the whole combat run before retreat and eating ac
   executor.advanceTick();
   executor.reconcile([combat, retreat, eat], snapshot(), 50);
   assert.deepEqual(started, ['combat', 'retreat', 'eat']);
-  assert.deepEqual(executor.runtime().lockedResources, { MOVE: 'retreat', LOOK: 'retreat', HAND: 'eat', INVENTORY: 'eat', VOICE: null });
+  assert.deepEqual(executor.runtime().lockedResources, {
+    MOVE: 'retreat',
+    LOOK: 'retreat',
+    HAND: 'eat',
+    INVENTORY: 'eat',
+    VOICE: null,
+  });
 });

@@ -2,11 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { Vec3 } from 'vec3';
-import { goals, Movements, pathfinder } from 'mineflayer-pathfinder';
+import { goals, pathfinder } from 'mineflayer-pathfinder';
 import minecraftData from 'minecraft-data';
 import {
-  DIG_WHITELIST,
-  PLACE_WHITELIST,
   NavigationExecutionBoundary,
   createNavigationTaskState,
   setupMovements,
@@ -16,7 +14,7 @@ import {
 } from '../../src/actions/navigation.ts';
 import { createArbiter } from '../../src/execution/arbiter.ts';
 import { createExecutor } from '../../src/execution/executor.ts';
-import type { ActionAdapter, ActionContext, ActionRequest, ActionResult } from '../../src/execution/types.ts';
+import type { ActionRequest } from '../../src/execution/types.ts';
 import { createBlackboard } from '../../src/blackboard.ts';
 
 const mcData = (minecraftData as any)('1.20.4');
@@ -50,7 +48,7 @@ function createMockBot() {
 test('Movements: canDig=false rejects all blocks; canDig=true strictly enforces DIG_WHITELIST', () => {
   const bot = createMockBot();
 
-  const block = (name: string, type: number) => ({ name, type } as any);
+  const block = (name: string, type: number) => ({ name, type }) as any;
 
   // 1. canDig = false (default)
   const mOff = setupMovements(bot, undefined, { canDig: false, allowBridge: false });
@@ -125,8 +123,12 @@ test('NavigationExecutionBoundary: enforces whitelist, authorization, and max 3 
   let serverPlaces = 0;
 
   const fakeBot: any = {
-    dig: async (_b: any) => { serverDigs++; },
-    placeBlock: async (_ref: any, _face: any) => { serverPlaces++; },
+    dig: async (_b: any) => {
+      serverDigs++;
+    },
+    placeBlock: async (_ref: any, _face: any) => {
+      serverPlaces++;
+    },
     heldItem: { name: 'dirt' },
   };
 
@@ -152,10 +154,7 @@ test('NavigationExecutionBoundary: enforces whitelist, authorization, and max 3 
   assert.equal(taskState.digQuota, 2);
 
   // 2. Non-whitelisted block is rejected and does not reach server
-  await assert.rejects(
-    () => fakeBot.dig({ name: 'diamond_ore' }),
-    /not in dig whitelist/
-  );
+  await assert.rejects(() => fakeBot.dig({ name: 'diamond_ore' }), /not in dig whitelist/);
   assert.equal(serverDigs, 1);
   assert.equal(taskState.digQuota, 2); // Quota was not deducted because check failed before dispatch
 
@@ -166,10 +165,7 @@ test('NavigationExecutionBoundary: enforces whitelist, authorization, and max 3 
   assert.equal(taskState.digQuota, 0);
 
   // 4. 4th dig rejected due to quota exhausted
-  await assert.rejects(
-    () => fakeBot.dig({ name: 'dirt' }),
-    /dig quota exhausted/
-  );
+  await assert.rejects(() => fakeBot.dig({ name: 'dirt' }), /dig quota exhausted/);
   assert.equal(serverDigs, 3);
 
   // 5. Place blocks: 3 allowed, 4th rejected
@@ -179,19 +175,13 @@ test('NavigationExecutionBoundary: enforces whitelist, authorization, and max 3 
   assert.equal(serverPlaces, 3);
   assert.equal(taskState.placeQuota, 0);
 
-  await assert.rejects(
-    () => fakeBot.placeBlock({}, {}),
-    /place quota exhausted/
-  );
+  await assert.rejects(() => fakeBot.placeBlock({}, {}), /place quota exhausted/);
   assert.equal(serverPlaces, 3);
 
   // 6. Non-whitelisted placed item rejected
   taskState.placeQuota = 1;
   fakeBot.heldItem = { name: 'diamond_block' };
-  await assert.rejects(
-    () => fakeBot.placeBlock({}, {}),
-    /not in place whitelist/
-  );
+  await assert.rejects(() => fakeBot.placeBlock({}, {}), /not in place whitelist/);
   assert.equal(serverPlaces, 3);
 
   boundary.uninstall(fakeBot);
@@ -202,7 +192,9 @@ test('NavigationExecutionBoundary: pending delayed callbacks after cancellation/
   let serverDigs = 0;
 
   const fakeBot: any = {
-    dig: async (_b: any) => { serverDigs++; },
+    dig: async (_b: any) => {
+      serverDigs++;
+    },
     placeBlock: async (_ref: any, _face: any) => {},
     heldItem: { name: 'dirt' },
   };
@@ -227,16 +219,10 @@ test('NavigationExecutionBoundary: pending delayed callbacks after cancellation/
   active = false; // run cancelled
   boundary.setActiveContext(null);
 
-  await assert.rejects(
-    () => fakeBot.dig({ name: 'dirt' }),
-    /navigation run is not active/
-  );
+  await assert.rejects(() => fakeBot.dig({ name: 'dirt' }), /navigation run is not active/);
   assert.equal(serverDigs, 0);
 
-  await assert.rejects(
-    () => fakeBot.placeBlock({}, {}),
-    /navigation run is not active/
-  );
+  await assert.rejects(() => fakeBot.placeBlock({}, {}), /navigation run is not active/);
 
   boundary.uninstall(fakeBot);
 });
@@ -249,15 +235,22 @@ test('Executor: cancellation confirmation holds locks until isStopped() is true'
   const executor = createExecutor(arbiter, {
     NormalFollow: () => ({
       start() {},
-      cancel() { cancelled = true; },
+      cancel() {
+        cancelled = true;
+      },
       isStopped: () => isStoppedVal,
     }),
   });
 
   const snapshot = createBlackboard('owner').snapshot(0);
   const req1: ActionRequest = {
-    nodeId: 'n1', runId: 'run-1', actionType: 'NormalFollow', targetId: null,
-    priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'], params: {},
+    nodeId: 'n1',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: null,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: {},
   };
 
   // Start run-1
@@ -297,8 +290,13 @@ test('Executor: cancellation confirmation timeout (1000ms) transitions to FAULTE
 
   const snapshot = createBlackboard('owner').snapshot(0);
   const req1: ActionRequest = {
-    nodeId: 'n1', runId: 'run-1', actionType: 'NormalFollow', targetId: null,
-    priority: 20, requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'], params: {},
+    nodeId: 'n1',
+    runId: 'run-1',
+    actionType: 'NormalFollow',
+    targetId: null,
+    priority: 20,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: {},
   };
 
   executor.reconcile([req1], snapshot, 0);
@@ -331,13 +329,15 @@ test('Movements: getMoveDiagonal prohibits diagonal moves when either orthogonal
 
   bot.blockAt = (p: any) => {
     const key = `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`;
-    return worldMap.get(key) ?? {
-      name: 'air',
-      type: 0,
-      boundingBox: 'empty',
-      shapes: [],
-      position: p,
-    };
+    return (
+      worldMap.get(key) ?? {
+        name: 'air',
+        type: 0,
+        boundingBox: 'empty',
+        shapes: [],
+        position: p,
+      }
+    );
   };
 
   // Node at (0, 64, 0). Ground at y=63.
@@ -367,7 +367,11 @@ test('Movements: getMoveDiagonal prohibits diagonal moves when either orthogonal
   worldMap.delete('1,64,0');
   const neighbors3: any[] = [];
   movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, neighbors3);
-  assert.equal(neighbors3.length, 1, 'Should generate diagonal move when both orthogonal sides have turning clearance');
+  assert.equal(
+    neighbors3.length,
+    1,
+    'Should generate diagonal move when both orthogonal sides have turning clearance'
+  );
   assert.equal(neighbors3[0].x, 1);
   assert.equal(neighbors3[0].y, 64);
   assert.equal(neighbors3[0].z, 1);
@@ -389,13 +393,15 @@ test('Movements: getMoveDiagonal prohibits diagonal moves when any adjacent, ori
 
   bot.blockAt = (p: any) => {
     const key = `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`;
-    return worldMap.get(key) ?? {
-      name: 'air',
-      type: 0,
-      boundingBox: 'empty',
-      shapes: [],
-      position: p,
-    };
+    return (
+      worldMap.get(key) ?? {
+        name: 'air',
+        type: 0,
+        boundingBox: 'empty',
+        shapes: [],
+        position: p,
+      }
+    );
   };
 
   const node: any = { x: 0, y: 64, z: 0, remainingBlocks: 0 };
@@ -479,7 +485,11 @@ test('Door waypoints: sanitizeDoorWaypoints repositions corrupted door waypoints
   };
 
   bot.blockAt = (p: any) => {
-    if (Math.floor(p.x) === 10 && (Math.floor(p.y) === 64 || Math.floor(p.y) === 65) && Math.floor(p.z) === 20) {
+    if (
+      Math.floor(p.x) === 10 &&
+      (Math.floor(p.y) === 64 || Math.floor(p.y) === 65) &&
+      Math.floor(p.z) === 20
+    ) {
       return openDoor;
     }
     return { name: 'air', boundingBox: 'empty', shapes: [], position: p };

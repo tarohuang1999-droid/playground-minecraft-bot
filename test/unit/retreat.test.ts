@@ -3,13 +3,10 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createBlackboard, createWorld } from '../../src/blackboard.ts';
 import { createNavigation, findSafestEscapePosition } from '../../src/actions/navigation.ts';
-import { shouldExitRetreat, shouldRetreat, survivalSubtree } from '../../src/bt/subtrees/survival.ts';
-import { createCompanionTree } from '../../src/bt/companion-tree.ts';
+import { shouldExitRetreat, shouldRetreat } from '../../src/bt/subtrees/survival.ts';
 import { createArbiter } from '../../src/execution/arbiter.ts';
-import { createExecutor } from '../../src/execution/executor.ts';
 import { attachCompanion } from '../../src/bot.ts';
 import type { ActionContext, ActionRequest } from '../../src/execution/types.ts';
-import { THRESHOLDS } from '../../src/policy.ts';
 
 test('findSafestEscapePosition: chooses position in direction with fewest enemies in area', () => {
   const fakeBot: any = {
@@ -26,10 +23,17 @@ test('findSafestEscapePosition: chooses position in direction with fewest enemie
   ];
 
   // Candidates sampled at radius 12
-  const escapePos = findSafestEscapePosition(fakeBot, threats, origin, { radius: 12, dangerRadius: 10, angleCount: 16 });
+  const escapePos = findSafestEscapePosition(fakeBot, threats, origin, {
+    radius: 12,
+    dangerRadius: 10,
+    angleCount: 16,
+  });
 
   // Escape direction should be on the West (-X) side, far away from all 3 enemies
-  assert.ok(escapePos.x < -8, `Expected escape position to be on West side (x < -8), got x=${escapePos.x}`);
+  assert.ok(
+    escapePos.x < -8,
+    `Expected escape position to be on West side (x < -8), got x=${escapePos.x}`
+  );
 });
 
 test('findSafestEscapePosition: avoids terrain hazards (lava)', () => {
@@ -49,10 +53,17 @@ test('findSafestEscapePosition: avoids terrain hazards (lava)', () => {
     },
   };
 
-  const escapePos = findSafestEscapePosition(fakeBot, threats, origin, { radius: 12, dangerRadius: 10, angleCount: 16 });
+  const escapePos = findSafestEscapePosition(fakeBot, threats, origin, {
+    radius: 12,
+    dangerRadius: 10,
+    angleCount: 16,
+  });
 
   // West has lava, so it must not pick x < 0 despite threats being at +X
-  assert.ok(escapePos.x >= 0, `Expected escape position to avoid lava at x < 0, got x=${escapePos.x}`);
+  assert.ok(
+    escapePos.x >= 0,
+    `Expected escape position to avoid lava at x < 0, got x=${escapePos.x}`
+  );
 });
 
 test('shouldRetreat: triggers on low health OR when swarmed by too many mobs', () => {
@@ -61,8 +72,16 @@ test('shouldRetreat: triggers on low health OR when swarmed by too many mobs', (
 
   // Case 1: Full health (20), 1 threat at distance 5 -> should NOT retreat
   const worldSingleThreat = createWorld('dakaz');
-  worldSingleThreat.self = { position: { x: 0, y: 64, z: 0 }, health: 20, food: 20, isAlive: true, tookDamageRecently: false };
-  worldSingleThreat.threats = [{ entityId: 10, name: 'zombie', position: { x: 5, y: 64, z: 0 }, distance: 5 }];
+  worldSingleThreat.self = {
+    position: { x: 0, y: 64, z: 0 },
+    health: 20,
+    food: 20,
+    isAlive: true,
+    tookDamageRecently: false,
+  };
+  worldSingleThreat.threats = [
+    { entityId: 10, name: 'zombie', position: { x: 5, y: 64, z: 0 }, distance: 5 },
+  ];
   board.setWorld(worldSingleThreat);
   let snap = board.snapshot(1000);
   assert.strictEqual(shouldRetreat(snap, available), false);
@@ -104,8 +123,16 @@ test('shouldExitRetreat: maintains hysteresis and does not exit until threats >=
 
   // Entered retreat with HP = 4. Threats now at distance 14 (between 12 and 18 blocks)
   const worldRetreating = createWorld('dakaz');
-  worldRetreating.self = { position: { x: 0, y: 64, z: 0 }, health: 4, food: 20, isAlive: true, tookDamageRecently: false };
-  worldRetreating.threats = [{ entityId: 10, name: 'zombie', position: { x: 14, y: 64, z: 0 }, distance: 14 }];
+  worldRetreating.self = {
+    position: { x: 0, y: 64, z: 0 },
+    health: 4,
+    food: 20,
+    isAlive: true,
+    tookDamageRecently: false,
+  };
+  worldRetreating.threats = [
+    { entityId: 10, name: 'zombie', position: { x: 14, y: 64, z: 0 }, distance: 14 },
+  ];
   board.setWorld(worldRetreating);
   let snap = board.snapshot(1000);
 
@@ -184,7 +211,9 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
     food = 10;
     goalsSet: any[] = [];
     pathfinder = {
-      setGoal: (goal: any, dynamic?: boolean) => { this.goalsSet.push({ goal, dynamic }); },
+      setGoal: (goal: any, dynamic?: boolean) => {
+        this.goalsSet.push({ goal, dynamic });
+      },
       setMovements: (_m: any) => {},
     };
     entities: Record<number, any> = {};
@@ -201,10 +230,16 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
     attacks: any[] = [];
     equipCalls: any[] = [];
     consumeCalls = 0;
-    equip = async (item: any) => { this.equipCalls.push(item); };
-    consume = async () => { this.consumeCalls++; };
+    equip = async (item: any) => {
+      this.equipCalls.push(item);
+    };
+    consume = async () => {
+      this.consumeCalls++;
+    };
     deactivateItem = () => {};
-    attack = (target: any) => { this.attacks.push(target); };
+    attack = (target: any) => {
+      this.attacks.push(target);
+    };
     lookAt = async () => {};
     chat = () => {};
   }
@@ -215,7 +250,14 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
   bot.players.dakaz = { entity: ownerEntity, username: 'dakaz' };
 
   // Zombie at distance 4
-  const zombie = { id: 10, name: 'zombie', position: { x: 4, y: 64, z: 0 }, height: 1.8, health: 20, isValid: true };
+  const zombie = {
+    id: 10,
+    name: 'zombie',
+    position: { x: 4, y: 64, z: 0 },
+    height: 1.8,
+    health: 20,
+    isValid: true,
+  };
   bot.entities[10] = zombie;
 
   const companion = attachCompanion(bot as any, 'dakaz');
@@ -223,7 +265,8 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
 
   // Start in FOLLOW mode
   bot.emit('chat', 'dakaz', '!follow');
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
 
   // Zombie is detected -> Combat engages
   assert.match(companion.snapshot().runtime.lockedResources.MOVE ?? '', /Combat/);
@@ -232,7 +275,8 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
   // Bot health drops to critical level (HP = 4 <= 6)
   bot.health = 4;
   bot.emit('entityHurt', bot.entity);
-  bot.emit('physicsTick'); bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
 
   // Verification: Combat is cancelled!
   // MOVE, LOOK acquired by Retreat
@@ -243,7 +287,9 @@ test('integration: in Combat, critical HP triggers Retreat + EmergencyEat, cance
   assert.match(locked.HAND ?? '', /emergency-eat|EmergencyEat/i);
   assert.match(locked.INVENTORY ?? '', /emergency-eat|EmergencyEat/i);
 
-  const activeActions = Object.values(companion.snapshot().runtime.activeRuns).map(r => r.actionType);
+  const activeActions = Object.values(companion.snapshot().runtime.activeRuns).map(
+    r => r.actionType
+  );
   assert.ok(activeActions.includes('Retreat'));
   assert.ok(activeActions.includes('EmergencyEat'));
   assert.strictEqual(activeActions.includes('Combat'), false);
@@ -279,7 +325,13 @@ test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allow
     isActive: () => true,
     getSnapshot: () => ({
       world: {
-        self: { position: { x: 0, y: 64, z: 0 }, health: 4, food: 20, isAlive: true, tookDamageRecently: true },
+        self: {
+          position: { x: 0, y: 64, z: 0 },
+          health: 4,
+          food: 20,
+          isAlive: true,
+          tookDamageRecently: true,
+        },
         master: { username: 'dakaz', entityId: 2, position: { x: 0, y: 64, z: 0 }, distance: 0 },
         base: null,
         spawnPoint: null,
@@ -288,9 +340,22 @@ test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allow
         entities: [],
         threats: [{ entityId: 10, name: 'zombie', position: { x: 3, y: 64, z: 0 }, distance: 3 }],
         nearbyDrops: [],
-        inventory: { freeSlots: 10, bestFood: null, bestWeapon: null, equippedWeaponDamage: 0, pendingArmorUpgrade: null },
+        inventory: {
+          freeSlots: 10,
+          bestFood: null,
+          bestWeapon: null,
+          equippedWeaponDamage: 0,
+          pendingArmorUpgrade: null,
+        },
       },
-      intent: { mode: 'FOLLOW', canDig: false, allowBridge: false, missionId: 'm1', updatedAt: 0, intentRevision: 1 },
+      intent: {
+        mode: 'FOLLOW',
+        canDig: false,
+        allowBridge: false,
+        missionId: 'm1',
+        updatedAt: 0,
+        intentRevision: 1,
+      },
       runtime: { activeRuns: {}, results: {}, cooldowns: {}, lockedResources: {} as any },
       revision: 1,
       observedAt: Date.now(),
@@ -305,7 +370,10 @@ test('retreat adapter: aborts with FAILURE when trapped/stalled for > 3.5s allow
   try {
     Date.now = () => originalNow() + 4000;
     const outcome = adapter.update!(ctx);
-    assert.deepStrictEqual(outcome, { status: 'FAILURE', reason: 'Retreat path trapped or obstructed' });
+    assert.deepStrictEqual(outcome, {
+      status: 'FAILURE',
+      reason: 'Retreat path trapped or obstructed',
+    });
   } finally {
     Date.now = originalNow;
   }

@@ -1,4 +1,10 @@
-import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
+import type {
+  ActionAdapter,
+  ActionContext,
+  ActionRequest,
+  ActionResult,
+  AdapterFactory,
+} from '../execution/types.ts';
 import { ARMOR_SLOTS, getArmorInfo, getFoodPoints } from '../perception.ts';
 
 export interface InventoryBot {
@@ -31,7 +37,10 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
           const items = typeof bot.inventory.items === 'function' ? bot.inventory.items() : [];
 
           let foodItem = bestFood
-            ? items.find(i => i.name === bestFood.name || i.type === bestFood.itemId || i.id === bestFood.itemId)
+            ? items.find(
+                i =>
+                  i.name === bestFood.name || i.type === bestFood.itemId || i.id === bestFood.itemId
+              )
             : null;
 
           if (!foodItem) {
@@ -48,7 +57,9 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
             await bot.equip(foodItem, 'hand');
           } catch (err: any) {
             if (!ctx.isActive()) return;
-            logger?.warn(`[inventory] failed to equip food ${foodItem.name}: ${err?.message ?? err}`);
+            logger?.warn(
+              `[inventory] failed to equip food ${foodItem.name}: ${err?.message ?? err}`
+            );
             return { status: 'FAILURE', reason: `Equip food failed: ${err?.message ?? err}` };
           }
           if (!ctx.isActive()) return; // [RULE-04]
@@ -97,11 +108,15 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
             const equippedTier = equipped ? (getArmorInfo(equipped.name)?.tier ?? 0) : 0;
 
             const items = typeof bot.inventory.items === 'function' ? bot.inventory.items() : [];
-            const candidates = items.filter(i => {
-              if (i.slot === slotIdx) return false;
-              const info = getArmorInfo(i.name);
-              return info && info.slot === slot && info.tier > equippedTier;
-            }).sort((a, b) => (getArmorInfo(b.name)?.tier ?? 0) - (getArmorInfo(a.name)?.tier ?? 0));
+            const candidates = items
+              .filter(i => {
+                if (i.slot === slotIdx) return false;
+                const info = getArmorInfo(i.name);
+                return info && info.slot === slot && info.tier > equippedTier;
+              })
+              .sort(
+                (a, b) => (getArmorInfo(b.name)?.tier ?? 0) - (getArmorInfo(a.name)?.tier ?? 0)
+              );
 
             const bestUpgrade = candidates[0];
             if (bestUpgrade) {
@@ -111,7 +126,9 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
                 equippedAny = true;
               } catch (err: any) {
                 if (!ctx.isActive()) return;
-                logger?.warn(`[inventory] equip armor error for ${bestUpgrade.name}: ${err?.message ?? err}`);
+                logger?.warn(
+                  `[inventory] equip armor error for ${bestUpgrade.name}: ${err?.message ?? err}`
+                );
               }
               if (!ctx.isActive()) return; // [RULE-04]
             }
@@ -122,7 +139,9 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
           const bestWp = snapshot.world.inventory.bestWeapon;
           if (bestWp && bestWp.attackDamage > snapshot.world.inventory.equippedWeaponDamage) {
             const items = typeof bot.inventory.items === 'function' ? bot.inventory.items() : [];
-            const wpItem = items.find(i => i.name === bestWp.name || i.type === bestWp.itemId || i.id === bestWp.itemId);
+            const wpItem = items.find(
+              i => i.name === bestWp.name || i.type === bestWp.itemId || i.id === bestWp.itemId
+            );
             if (wpItem) {
               logger?.info(`[inventory] equipping best weapon ${wpItem.name} to hand`);
               try {
@@ -130,12 +149,17 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
                 equippedAny = true;
               } catch (err: any) {
                 if (!ctx.isActive()) return;
-                logger?.warn(`[inventory] equip weapon error for ${wpItem.name}: ${err?.message ?? err}`);
+                logger?.warn(
+                  `[inventory] equip weapon error for ${wpItem.name}: ${err?.message ?? err}`
+                );
               }
               if (!ctx.isActive()) return; // [RULE-04]
             }
           }
 
+          if (equippedAny) {
+            logger?.info('[inventory] EquipBest successfully upgraded items');
+          }
           return { status: 'SUCCESS' };
         },
 
