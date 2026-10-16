@@ -1,7 +1,7 @@
 import { goals, Movements } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
-import { navigationConfig } from '../config/index.ts';
+import { navigationConfig, workConfig } from '../config/index.ts';
 import type {
   ActionAdapter,
   ActionContext,
@@ -888,9 +888,18 @@ export function createNavigation(
       let activeGoal: unknown = null;
       let targetEntityId: number | null = request.targetId;
       let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastTargetPos: { x: number; y: number; z: number } | null = null;
       let lastProgressTime = 0;
       let lastRepathTime = 0;
       let isJumping = false;
+      let isSteppingForward = false;
+
+      const clearForwardStep = () => {
+        if (isSteppingForward) {
+          bot.setControlState?.('forward', false);
+          isSteppingForward = false;
+        }
+      };
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -911,23 +920,30 @@ export function createNavigation(
           if (bot.entity?.position) {
             lastPos = { ...bot.entity.position };
           }
+          lastTargetPos = { ...target.position };
           setupMovements(bot, logger, { canDig: false, allowBridge: false });
           boundary.setActiveContext(null);
           logger?.info(`[navigation] PickupItem started towards entity ${targetEntityId}`, {
             itemPos: target.position,
           });
-          activeGoal = new GoalNear(target.position.x, target.position.y, target.position.z, 0.8);
+          activeGoal = new GoalNear(
+            target.position.x,
+            target.position.y,
+            target.position.z,
+            workConfig.pickupGoalDistance
+          );
           bot.pathfinder.setGoal(activeGoal, false);
         },
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
           const now = Date.now();
 
-          // 1. Check 4-second timeout
+          // 1. Check timeout
           if (now - startTime > 4000) {
             logger?.warn(`[navigation] PickupItem timed out (> 4s) for entity ${targetEntityId}`);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
+            clearForwardStep();
             return { status: 'FAILURE', reason: 'Pickup timed out after 4000ms' };
           }
 
@@ -937,10 +953,35 @@ export function createNavigation(
             logger?.info(`[navigation] PickupItem success: entity ${targetEntityId} collected`);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
+            clearForwardStep();
             return { status: 'SUCCESS' };
           }
 
-          // 3. Proactive door opening
+          const currentPos = bot.entity?.position;
+          const distToItem = currentPos
+            ? Math.hypot(currentPos.x - target.position.x, currentPos.z - target.position.z)
+            : Infinity;
+          const dyToItem = currentPos ? Math.abs(currentPos.y - target.position.y) : Infinity;
+
+          // 3. Dynamic target tracking: if item moved (e.g. rolled, bounced, flowed in water)
+          if (lastTargetPos) {
+            const targetMoved =
+              Math.hypot(target.position.x - lastTargetPos.x, target.position.z - lastTargetPos.z) >
+                0.3 || Math.abs(target.position.y - lastTargetPos.y) > 0.4;
+            if (targetMoved && now - lastRepathTime > 300) {
+              lastRepathTime = now;
+              lastTargetPos = { ...target.position };
+              activeGoal = new GoalNear(
+                target.position.x,
+                target.position.y,
+                target.position.z,
+                workConfig.pickupGoalDistance
+              );
+              bot.pathfinder?.setGoal(activeGoal, false);
+            }
+          }
+
+          // 4. Proactive door opening
           const openedDoor = doorManager.tryOpenDoorInFront(bot, logger);
           if (openedDoor) {
             lastProgressTime = now;
@@ -950,18 +991,18 @@ export function createNavigation(
                 target.position.x,
                 target.position.y,
                 target.position.z,
-                0.8
+                workConfig.pickupGoalDistance
               );
               bot.pathfinder?.setGoal(activeGoal, false);
             }
           }
 
-          // 4. Climbing ladder
+          // 5. Climbing ladder
           if (isClimbingLadder(bot)) {
             bot.setControlState?.('jump', true);
             isJumping = true;
           } else {
-            // 5. Obstacle Jump Check
+            // 6. Obstacle Jump Check
             if (shouldJumpObstacle(bot)) {
               bot.setControlState?.('jump', true);
               isJumping = true;
@@ -974,8 +1015,28 @@ export function createNavigation(
             }
           }
 
-          // 6. Obstruction & Stuck Detection
-          const currentPos = bot.entity?.position;
+          // 7. Active close-range physical stepping:
+          // When within pickupNearStepDistance horizontally and 1.5 blocks vertically,
+          // look directly at the item and apply gentle forward movement directly onto the drop!
+          if (distToItem <= workConfig.pickupNearStepDistance && dyToItem <= 1.5) {
+            if (typeof (bot as any).lookAt === 'function') {
+              try {
+                (bot as any).lookAt(target.position, true)?.catch?.(() => {});
+              } catch {}
+            }
+            if (distToItem > 0.15) {
+              bot.setControlState?.('forward', true);
+              isSteppingForward = true;
+            } else {
+              clearForwardStep();
+            }
+            // Reset progress time when actively at/near the item so it is not marked stalled
+            lastProgressTime = now;
+          } else {
+            clearForwardStep();
+          }
+
+          // 8. Obstruction & Stuck Detection
           if (currentPos && lastPos) {
             const mdx = currentPos.x - lastPos.x;
             const mdy = currentPos.y - lastPos.y;
@@ -992,12 +1053,14 @@ export function createNavigation(
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
           const progressStalled = now - lastProgressTime > navigationConfig.stallThresholdMs;
-          if (progressStalled && !isMoving) {
+          // Only fail for stall if bot is distant from item (> 1.2 blocks); if near the item, let the timeout run
+          if (progressStalled && !isMoving && distToItem > 1.2) {
             logger?.warn(
               `[navigation] PickupItem path obstructed or idle for entity ${targetEntityId}`
             );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
+            clearForwardStep();
             return { status: 'FAILURE', reason: 'Unreachable item drop' };
           }
         },
@@ -1006,11 +1069,12 @@ export function createNavigation(
           activeGoal = null;
           boundary.setActiveContext(null);
           bot.setControlState?.('jump', false);
+          clearForwardStep();
           bot.pathfinder?.setGoal(null);
           doorManager.reset();
         },
         isStopped(): boolean {
-          return !doorManager.isInFlight();
+          return !doorManager.isInFlight() && !isSteppingForward;
         },
       };
     };

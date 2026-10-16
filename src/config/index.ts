@@ -34,6 +34,8 @@ export const THRESHOLDS = {
   emergencyHealth: survivalConfig.emergencyHealth,
   pickupRadius: workConfig.pickupRadius,
   pickupMasterLimit: workConfig.pickupMasterLimit,
+  pickupGoalDistance: workConfig.pickupGoalDistance,
+  pickupNearStepDistance: workConfig.pickupNearStepDistance,
   failureCooldownMs: workConfig.failureCooldownMs,
   observationRadius: systemConfig.observationRadius,
   chatIntervalMs: systemConfig.chatIntervalMs,

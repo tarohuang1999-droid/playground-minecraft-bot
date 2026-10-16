@@ -36,6 +36,8 @@ export const workConfig = {
   // Pickup
   pickupRadius: 5,
   pickupMasterLimit: 10,
+  pickupGoalDistance: 0.2,
+  pickupNearStepDistance: 1.5,
   failureCooldownMs: 30_000,
 
   // Hunting

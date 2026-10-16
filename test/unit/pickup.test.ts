@@ -281,3 +281,119 @@ test('pickup timeout and failure triggers 30-second cooldown in executor', () =>
   runtime = executor.runtime();
   assert.equal(runtime.activeRuns['pickup-run-1'], undefined);
 });
+
+test('pickup adapter: dynamically updates GoalNear when item entity position moves', () => {
+  const goalsSet: Array<{ goal: any; dynamic?: boolean | undefined }> = [];
+  const itemEntity = { id: 60, position: { x: 3, y: 64, z: 3 } };
+  const fakeBot = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    pathfinder: {
+      setGoal(goal: any, dynamic?: boolean) {
+        goalsSet.push({ goal, dynamic });
+      },
+    },
+    entities: {
+      60: itemEntity,
+    },
+  };
+
+  const nav = createNavigation(fakeBot as any);
+  const board = createBlackboard('dakaz');
+  const world = createWorld('dakaz');
+  world.self.position = { x: 0, y: 64, z: 0 };
+  board.setWorld(world);
+
+  const request: ActionRequest = {
+    nodeId: 'PickupItem',
+    runId: 'run-p2',
+    actionType: 'PickupItem',
+    targetId: 60,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
+  };
+
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = nav.pickupItem(request);
+  adapter.start(ctx);
+  assert.equal(goalsSet.length, 1);
+  assert.equal(Math.round(goalsSet[0]?.goal.rangeSq * 100) / 100, 0.04);
+
+  // Item bounces/moves by > 0.3 blocks and simulated delay > 300ms
+  itemEntity.position = { x: 5, y: 64, z: 5 };
+  // Mock Date.now advance by running update after 400ms
+  const originalNow = Date.now;
+  try {
+    const fakeNow = originalNow() + 400;
+    Date.now = () => fakeNow;
+    adapter.update!(ctx);
+    assert.equal(goalsSet.length, 2);
+    assert.equal(goalsSet[1]?.goal.x, 5);
+    assert.equal(goalsSet[1]?.goal.z, 5);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('pickup adapter: engages close-range lookAt and forward stepping, and clears control on success or cancel', () => {
+  const controls: Record<string, boolean> = {};
+  const lookedAt: any[] = [];
+  const itemEntity = { id: 70, position: { x: 1, y: 64, z: 0 } };
+  const fakeBot = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    pathfinder: {
+      setGoal() {},
+    },
+    entities: {
+      70: itemEntity,
+    },
+    setControlState(control: string, state: boolean) {
+      controls[control] = state;
+    },
+    async lookAt(pos: any) {
+      lookedAt.push(pos);
+    },
+  };
+
+  const nav = createNavigation(fakeBot as any);
+  const board = createBlackboard('dakaz');
+  const request: ActionRequest = {
+    nodeId: 'PickupItem',
+    runId: 'run-p3',
+    actionType: 'PickupItem',
+    targetId: 70,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
+  };
+
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = nav.pickupItem(request);
+  adapter.start(ctx);
+
+  // Bot is at (0, 64, 0), item is at (1, 64, 0) -> distance is 1.0 <= pickupNearStepDistance (1.5)
+  adapter.update!(ctx);
+  assert.equal(controls['forward'], true, 'Forward stepping should be active when near item');
+  assert.equal(lookedAt.length, 1, 'lookAt should be called towards item position');
+
+  // Cancel clears forward stepping and releases lock
+  adapter.cancel();
+  assert.equal(controls['forward'], false, 'Forward stepping should be cleared on cancel');
+  assert.equal(adapter.isStopped?.(), true, 'isStopped should return true after cancel');
+});
