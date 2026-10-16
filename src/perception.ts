@@ -1,5 +1,5 @@
 import { createWorld, type Position, type WorldState } from './blackboard.ts';
-import { THRESHOLDS, CROP_REGISTRY } from './config/index.ts';
+import { THRESHOLDS, CROP_REGISTRY, workConfig } from './config/index.ts';
 import { Vec3 } from 'vec3';
 import { loadPersistentState, savePersistentState } from './state-storage.ts';
 
@@ -221,6 +221,7 @@ export function createPerception(
   let bedNeedsRefresh = false;
   let bedCooldownUntil = 0;
   const farmlandCooldowns = new Map<string, number>();
+  const animalCooldowns = new Map<number, number>();
 
   const persist = () => {
     if (options.storagePath) {
@@ -539,6 +540,30 @@ export function createPerception(
       };
       return findAvailableFarmland(bot, rallyPoint, maxRadius, isCooldown);
     },
+
+    markAnimalCooldown(entityId: number, durationMs = 30_000) {
+      animalCooldowns.set(entityId, getNow() + durationMs);
+    },
+
+    clearAnimalCooldowns() {
+      animalCooldowns.clear();
+    },
+
+    getHuntableAnimal(
+      rallyPoint: Position,
+      maxRadius: number = 25,
+      targetAnimal?: string | null
+    ): { entityId: number; name: string; position: Position; distance: number } | null {
+      const now = getNow();
+      for (const [id, exp] of animalCooldowns.entries()) {
+        if (now >= exp) animalCooldowns.delete(id);
+      }
+      const isCooldown = (id: number) => {
+        const exp = animalCooldowns.get(id);
+        return exp !== undefined && now < exp;
+      };
+      return findHuntableAnimal(bot, rallyPoint, maxRadius, targetAnimal, isCooldown);
+    },
   };
 }
 
@@ -597,4 +622,53 @@ export function findAvailableFarmland(
     }
   }
   return null;
+}
+
+export function findHuntableAnimal(
+  bot: PerceptionSource,
+  rallyPoint: Position,
+  maxRadius: number = 25,
+  targetAnimal?: string | null,
+  isCooldown?: (entityId: number) => boolean
+): { entityId: number; name: string; position: Position; distance: number } | null {
+  const origin = bot.entity?.position;
+  if (!origin) return null;
+
+  const validTargets: readonly string[] = targetAnimal
+    ? [targetAnimal.toLowerCase()]
+    : (workConfig.huntTargetAnimals as readonly string[]);
+
+  let best: { entityId: number; name: string; position: Position; distance: number } | null = null;
+  let minDistance = Infinity;
+
+  const entities = bot.entities ? Object.values(bot.entities) : [];
+  for (const entity of entities) {
+    if (!entity?.position) continue;
+    if (entity.id === bot.entity?.id) continue;
+    if ((entity as any).isValid === false) continue;
+    const health = (entity as any).health;
+    if (health !== undefined && health <= 0) continue;
+
+    const name = (entity.name ?? '').toLowerCase();
+    if (!validTargets.includes(name)) continue;
+
+    if (isCooldown && isCooldown(entity.id)) continue;
+
+    const dx = entity.position.x - rallyPoint.x;
+    const dz = entity.position.z - rallyPoint.z;
+    if (Math.hypot(dx, dz) > maxRadius) continue;
+
+    const d = distance(origin, entity.position);
+    if (d < minDistance) {
+      minDistance = d;
+      best = {
+        entityId: entity.id,
+        name,
+        position: position(entity.position),
+        distance: d,
+      };
+    }
+  }
+
+  return best;
 }

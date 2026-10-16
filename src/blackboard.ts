@@ -49,9 +49,10 @@ export interface WorkAreaState {
   startedAt: number;
   maxDurationMs: number;
   cropType?: string | null;
+  targetAnimal?: string | null;
 }
 export interface IntentState {
-  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM';
+  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM' | 'HUNT';
   targetPosition?: Position | null;
   workArea?: WorkAreaState | null;
   canDig: boolean;

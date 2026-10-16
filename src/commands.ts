@@ -1,5 +1,5 @@
 import type { IntentState } from './blackboard.ts';
-import { CROP_REGISTRY } from './config/index.ts';
+import { CROP_REGISTRY, workConfig } from './config/index.ts';
 
 export type CommandEvent =
   | { type: 'intent'; mode: IntentState['mode'] }
@@ -10,6 +10,7 @@ export type CommandEvent =
   | { type: 'set_bridge'; enabled: boolean }
   | { type: 'item'; target: 'equipment' | 'inventory' }
   | { type: 'farm'; crop: string | null }
+  | { type: 'hunt'; target: string | null }
   | { type: 'command_usage'; message: string }
   | { type: 'unknown'; raw: string };
 
@@ -83,6 +84,20 @@ export function parseCommand(
       }
     }
     return { type: 'command_usage', message: 'Usage: !farm [wheat|carrot|potato|beetroot]' };
+  }
+
+  if (cmd === 'hunt') {
+    if (tokens.length === 1) return { type: 'hunt', target: null };
+    if (tokens.length === 2) {
+      const target = tokens[1];
+      if (target && (workConfig.huntTargetAnimals as readonly string[]).includes(target)) {
+        return { type: 'hunt', target };
+      }
+    }
+    return {
+      type: 'command_usage',
+      message: `Usage: !hunt [${workConfig.huntTargetAnimals.join('|')}]`,
+    };
   }
 
   return { type: 'unknown', raw: clean };

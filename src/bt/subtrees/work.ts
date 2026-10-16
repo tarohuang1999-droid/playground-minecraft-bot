@@ -7,8 +7,16 @@ import { navigationConfig } from '../../config/index.ts';
 export interface WorkSubtreeOptions {
   onNavigationFailed?: ((reason: string, missionId: string) => void) | undefined;
   onFarmingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED') => void) | undefined;
+  onHuntingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED') => void) | undefined;
   logger?: NavigationLogger | undefined;
   getAvailableFarmland?: ((rallyPoint: Position, maxRadius: number) => Position | null) | undefined;
+  getHuntableAnimal?:
+    | ((
+        rallyPoint: Position,
+        maxRadius: number,
+        targetAnimal?: string | null
+      ) => { entityId: number; name: string; position: Position; distance: number } | null)
+    | undefined;
 }
 
 export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtreeOptions) {
@@ -237,12 +245,74 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: () => true }
   );
 
+  const canHunt = (s: BlackboardSnapshot) =>
+    s.world.self.isAlive && s.intent.mode === 'HUNT' && !!s.intent.workArea;
+
+  const isHuntingActive = (s: BlackboardSnapshot) => {
+    if (!canHunt(s)) return false;
+    const workArea = s.intent.workArea!;
+    const elapsed = s.observedAt - workArea.startedAt;
+    if (elapsed >= workArea.maxDurationMs) return false;
+    const animal = options?.getHuntableAnimal?.(
+      workArea.rallyPoint,
+      workArea.maxRadius,
+      workArea.targetAnimal
+    );
+    return animal !== null && animal !== undefined;
+  };
+
+  const huntAnimal = guard(
+    'HuntAnimal-ready',
+    s => available.has('HuntAnimal') && isHuntingActive(s),
+    action('HuntAnimal', s => {
+      const workArea = s.intent.workArea!;
+      const animal = options?.getHuntableAnimal?.(
+        workArea.rallyPoint,
+        workArea.maxRadius,
+        workArea.targetAnimal
+      );
+      return {
+        actionType: 'HuntAnimal',
+        targetId: animal?.entityId ?? null,
+        params: {
+          rallyX: workArea.rallyPoint.x,
+          rallyY: workArea.rallyPoint.y,
+          rallyZ: workArea.rallyPoint.z,
+          maxRadius: workArea.maxRadius,
+          targetAnimal: workArea.targetAnimal ?? '',
+        },
+      };
+    }),
+    { exit: s => !available.has('HuntAnimal') || !isHuntingActive(s) }
+  );
+
+  const isHuntingFinished = (s: BlackboardSnapshot) => canHunt(s) && !isHuntingActive(s);
+
+  const huntFinish = guard(
+    'HuntFinish-ready',
+    s => isHuntingFinished(s),
+    action('HuntFinish', s => {
+      const workArea = s.intent.workArea!;
+      const elapsed = s.observedAt - workArea.startedAt;
+      const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
+      options?.onHuntingFinished?.(reason);
+      return {
+        actionType: 'Idle',
+        targetId: null,
+        params: {},
+      };
+    }),
+    { exit: () => true }
+  );
+
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
+    huntAnimal,
     farmPlant,
     comeOnce,
     returnToBase,
+    huntFinish,
     farmFinish,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
     setSpawn,

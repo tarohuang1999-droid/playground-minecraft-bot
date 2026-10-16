@@ -14,6 +14,7 @@ import { createNavigation, setupMovements } from './actions/navigation.ts';
 import { createInventoryAdapters } from './actions/inventory.ts';
 import { createCombatAdapter } from './actions/combat.ts';
 import { createFarming } from './actions/farming.ts';
+import { createHunting } from './actions/hunting.ts';
 import { workConfig } from './config/index.ts';
 import { createLogger, type Logger } from './logger.ts';
 import { DEFAULT_STATE_FILE } from './state-storage.ts';
@@ -133,6 +134,26 @@ export function attachCompanion(
         FarmPlant: farming.farmPlant,
       }
     : {};
+  let huntedAnimalsCount = 0;
+  const hunting = createHunting(
+    bot as any,
+    {
+      onAnimalKilled: animalName => {
+        huntedAnimalsCount++;
+        logger?.info(`[hunting] killed ${animalName} (total: ${huntedAnimalsCount})`);
+      },
+      onAnimalEscaped: entityId => {
+        perception.markAnimalCooldown(entityId, 30_000);
+        logger?.info(`[hunting] animal ${entityId} escaped, put on 30s cooldown`);
+      },
+    },
+    logger
+  );
+  const huntingAdapters = hasPathfinderOrPlugin
+    ? {
+        HuntAnimal: hunting.huntAnimal,
+      }
+    : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,
     EmergencyEat: inventory.emergencyEat,
@@ -146,6 +167,7 @@ export function attachCompanion(
       Combat: combat,
       ...navigationAdapters,
       ...farmingAdapters,
+      ...huntingAdapters,
       ...inventoryAdapters,
       ...options.adapters,
     },
@@ -165,6 +187,20 @@ export function attachCompanion(
         );
       } else {
         chat.enqueue(`Farming completed. Planted ${plantedCropsCount} crops.`);
+      }
+      runner.requestUrgentTick();
+    },
+    getHuntableAnimal: (rallyPoint, maxRadius, targetAnimal) =>
+      perception.getHuntableAnimal(rallyPoint, maxRadius, targetAnimal),
+    onHuntingFinished: reason => {
+      logger?.info(`[hunting] shift finished (${reason}), total hunted: ${huntedAnimalsCount}`);
+      runner.enqueue({ type: 'intent', mode: 'IDLE' });
+      if (reason === 'TIMEOUT') {
+        chat.enqueue(
+          `Hunting shift completed (1 day limit reached). Hunted ${huntedAnimalsCount} animals.`
+        );
+      } else {
+        chat.enqueue(`Hunting completed. Hunted ${huntedAnimalsCount} animals.`);
       }
       runner.requestUrgentTick();
     },
@@ -453,6 +489,33 @@ export function attachCompanion(
         },
       });
       chat.enqueue('Intent=FARM');
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'hunt') {
+      const currentWorld = perception.sample();
+      const selfPos = currentWorld.self.position;
+      const rallyPoint = { x: selfPos.x, y: selfPos.y, z: selfPos.z };
+
+      huntedAnimalsCount = 0;
+      perception.clearAnimalCooldowns();
+
+      logger?.info(
+        `[chat] accepted command: hunt (target=${event.target ?? 'all'}, rally=(${rallyPoint.x.toFixed(1)}, ${rallyPoint.y.toFixed(1)}, ${rallyPoint.z.toFixed(1)}))`
+      );
+      runner.enqueue({
+        type: 'intent',
+        mode: 'HUNT',
+        workArea: {
+          rallyPoint,
+          maxRadius: workConfig.huntWorkRadius,
+          startedAt: Date.now(),
+          maxDurationMs: workConfig.huntMaxDurationMs,
+          targetAnimal: event.target,
+        },
+      });
+      chat.enqueue('Intent=HUNT');
       runner.requestUrgentTick();
       return;
     }

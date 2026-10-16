@@ -7,6 +7,7 @@ export const MODE_PRIORITY = {
   SURVIVAL: 70,
   COMBAT: 60,
   FARM: 25,
+  HUNT: 25,
   WORK: 20,
   FOLLOW: 15,
   NAVIGATION: 15,
@@ -28,6 +29,11 @@ export const ACTION_POLICY = {
   CatchUpFollow: { mode: 'FOLLOW', priority: 25, requiredResources: ['MOVE', 'LOOK'] },
   FarmPlant: {
     mode: 'FARM',
+    priority: 15,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+  },
+  HuntAnimal: {
+    mode: 'HUNT',
     priority: 15,
     requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
   },
