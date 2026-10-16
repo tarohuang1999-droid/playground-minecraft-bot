@@ -12,69 +12,48 @@ import {
   CROP_REGISTRY,
 } from '../../src/config/index.ts';
 
-test('Config: navigationConfig contains all pathfinding and movement policies', () => {
-  assert.equal(navigationConfig.followEnter, 2.2);
-  assert.equal(navigationConfig.followExit, 1.2);
-  assert.equal(navigationConfig.catchUpEnter, 16);
-  assert.equal(navigationConfig.catchUpExit, 5);
-  assert.equal(navigationConfig.stallThresholdMs, 1500);
-  assert.equal(navigationConfig.recoveryMaxRetries, 2);
-  assert.equal(navigationConfig.defaultCanDig, false);
-  assert.equal(navigationConfig.defaultAllowBridge, false);
-  assert.equal(navigationConfig.allowParkour, false);
-  assert.ok(DIG_WHITELIST.has('dirt'));
-  assert.ok(PLACE_WHITELIST.has('cobblestone'));
+test('Config Invariants: navigation and combat hysteresis prevent oscillation', () => {
+  // Exit thresholds must strictly be lower/higher than enter thresholds to ensure hysteresis
+  assert.ok(
+    navigationConfig.followExit < navigationConfig.followEnter,
+    'followExit must be less than followEnter'
+  );
+  assert.ok(
+    navigationConfig.catchUpExit < navigationConfig.catchUpEnter,
+    'catchUpExit must be less than catchUpEnter'
+  );
+  assert.ok(
+    combatConfig.combatEnter < combatConfig.combatExit,
+    'combatEnter must be less than combatExit'
+  );
+  assert.ok(
+    THRESHOLDS.retreatEnter < THRESHOLDS.retreatExit,
+    'retreatEnter must be less than retreatExit'
+  );
 });
 
-test('Config: combatConfig contains combat and retreat thresholds', () => {
-  assert.equal(combatConfig.combatEnter, 8);
-  assert.equal(combatConfig.combatExit, 16);
-  assert.equal(combatConfig.retreatHealth, 6);
-  assert.equal(combatConfig.retreatMobCount, 3);
-  assert.equal(combatConfig.retreatSafeMs, 3000);
+test('Config Invariants: survival thresholds follow logical emergency ordering', () => {
+  assert.ok(
+    survivalConfig.emergencyFood < survivalConfig.routineFood,
+    'emergencyFood must be strictly less than routineFood'
+  );
+  assert.ok(
+    survivalConfig.sleepMinTime < survivalConfig.sleepMaxTime,
+    'sleepMinTime must precede sleepMaxTime'
+  );
 });
 
-test('Config: survivalConfig contains eating thresholds and sleep boundaries', () => {
-  assert.equal(survivalConfig.routineFood, 16);
-  assert.equal(survivalConfig.emergencyFood, 6);
-  assert.equal(survivalConfig.emergencyHealth, 10);
-  assert.equal(survivalConfig.sleepMinTime, 12541);
-  assert.equal(survivalConfig.sleepMaxTime, 23458);
+test('Config Invariants: execution intervals, whitelists and crop registry validity', () => {
+  assert.ok(navigationConfig.stallThresholdMs > 0);
+  assert.ok(systemConfig.chatIntervalMs > 0);
+  assert.ok(systemConfig.chatQueueLimit > 0);
+  assert.ok(workConfig.pickupRadius > 0);
+  assert.ok(DIG_WHITELIST.size > 0);
+  assert.ok(PLACE_WHITELIST.size > 0);
+  assert.ok(Object.keys(CROP_REGISTRY).length > 0);
 });
 
-test('Config: workConfig defines hunting, farming, and box constraints', () => {
-  assert.equal(workConfig.pickupRadius, 5);
-  assert.equal(workConfig.failureCooldownMs, 30_000);
-  assert.deepEqual(workConfig.huntTargetAnimals, ['chicken', 'pig', 'cow', 'sheep']);
-  assert.equal(workConfig.huntWorkDiameter, 50);
-  assert.equal(workConfig.huntWorkRadius, 25);
-  assert.equal(workConfig.huntMaxDurationMs, 1_200_000);
-
-  assert.equal(workConfig.farmWorkDiameter, 50);
-  assert.equal(workConfig.farmWorkRadius, 25);
-  assert.equal(workConfig.farmMaxDurationMs, 1_200_000);
-  assert.equal(workConfig.avoidJumpingOnFarmland, true);
-
-  assert.ok(CROP_REGISTRY.wheat);
-  assert.equal(CROP_REGISTRY.wheat.seedItem, 'wheat_seeds');
-  assert.equal(CROP_REGISTRY.wheat.matureAge, 7);
-  assert.ok(CROP_REGISTRY.beetroot);
-  assert.equal(CROP_REGISTRY.beetroot.matureAge, 3);
-
-  assert.equal(workConfig.boxMaxInteractionDistance, 3.5);
-  assert.ok(workConfig.defaultPreservedItems.includes('bread'));
-});
-
-test('Config: systemConfig defines runner intervals and storage paths', () => {
-  assert.equal(systemConfig.tickIntervalMs, 100);
-  assert.equal(systemConfig.fenceTickMs, 50);
-  assert.equal(systemConfig.chatIntervalMs, 1000);
-  assert.equal(systemConfig.chatQueueLimit, 5);
-  assert.equal(systemConfig.observationRadius, 32);
-  assert.equal(systemConfig.stateStorageFile, 'data/state.json');
-});
-
-test('Config: backward compatibility composite THRESHOLDS matches domain configs', () => {
+test('Config Invariants: composite THRESHOLDS maintains backward compatibility', () => {
   assert.equal(THRESHOLDS.followEnter, navigationConfig.followEnter);
   assert.equal(THRESHOLDS.followExit, navigationConfig.followExit);
   assert.equal(THRESHOLDS.retreatHealth, combatConfig.retreatHealth);

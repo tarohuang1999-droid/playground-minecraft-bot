@@ -113,6 +113,7 @@
 
 ## 5. 測試與型別校驗規範
 
+* **測試編寫詳細規範**：測試設計原則、反鏡像測試、防劣化鐵律與組織規範，詳見 [docs/rules/rule-testing.md](file:///Users/james/projects/playground-mineflayer/docs/rules/rule-testing.md)。
 * **型別校驗先行**：任何程式碼提交前，必須先執行型別檢查且無任何錯誤：
   ```bash
   pnpm run typecheck
@@ -127,3 +128,4 @@
 * **可觀測性要求**：
   * 執行期重要狀態變更、指令解析、動作搶佔與未預期異常，必須透過 `src/logger.ts` 記錄於 `logs/bot-{name}-{date}.log`，日誌格式統一為：
     `[YYYY-MM-DDTHH:mm:ss.sssZ] [LEVEL] message`。
+

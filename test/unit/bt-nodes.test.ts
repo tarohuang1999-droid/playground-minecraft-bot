@@ -9,7 +9,6 @@ import {
   reactiveSelector,
   recovery,
   sequence,
-  stagedRecovery,
 } from '../../src/bt/nodes.ts';
 import type { BtNode } from '../../src/bt/nodes.ts';
 
@@ -158,91 +157,4 @@ test('recovery node returns FAILURE if recovery action fails', () => {
   const tree = createTree(recovery('recNode', primary, recAction, { maxRetries: 1 }));
   const res = tree.tick(snapshot());
   assert.equal(res.status, 'FAILURE');
-});
-
-test('stagedRecovery steps through stages on subsequent recovery attempts', () => {
-  let primaryFails = 0;
-  const primary: BtNode = {
-    id: 'primary',
-    tick: () => {
-      primaryFails++;
-      return { status: 'FAILURE', requests: [] };
-    },
-    halt: () => {},
-  };
-
-  let stage0Ticks = 0;
-  let stage1Ticks = 0;
-  const stage0: BtNode = {
-    id: 'stage0',
-    tick: () => {
-      stage0Ticks++;
-      return { status: 'SUCCESS', requests: [] };
-    },
-    halt: () => {},
-  };
-  const stage1: BtNode = {
-    id: 'stage1',
-    tick: () => {
-      stage1Ticks++;
-      return { status: 'SUCCESS', requests: [] };
-    },
-    halt: () => {},
-  };
-
-  let finalFailureCalled = false;
-  const tree = createTree(
-    recovery('recNode', primary, stagedRecovery('stagedRec', [stage0, stage1]), {
-      maxRetries: 2,
-      onFinalFailure: () => {
-        finalFailureCalled = true;
-      },
-    })
-  );
-
-  // Tick 1: Primary fails (1) -> Stage 0 runs and succeeds -> Primary retried in same tick -> fails (2)
-  // -> Stage 1 runs and succeeds -> Primary retried in same tick -> fails (3, maxRetries=2 reached)
-  // -> onFinalFailure invoked, returns FAILURE!
-  const res = tree.tick(snapshot());
-  assert.equal(res.status, 'FAILURE');
-  assert.equal(stage0Ticks, 1, 'Stage 0 must execute on first recovery attempt');
-  assert.equal(stage1Ticks, 1, 'Stage 1 must execute on second recovery attempt');
-  assert.equal(primaryFails, 3, 'Primary must fail 3 times (initial + 2 retries)');
-  assert.equal(finalFailureCalled, true, 'onFinalFailure must be called when maxRetries exhausted');
-});
-
-test('stagedRecovery falls through to next stage immediately if first stage fails', () => {
-  const primary: BtNode = {
-    id: 'primary',
-    tick: () => ({ status: 'FAILURE', requests: [] }),
-    halt: () => {},
-  };
-
-  let stage0Ticks = 0;
-  let stage1Ticks = 0;
-  const stage0: BtNode = {
-    id: 'stage0',
-    tick: () => {
-      stage0Ticks++;
-      return { status: 'FAILURE', requests: [] }; // Fails immediately (e.g. unsafe lateral ground)
-    },
-    halt: () => {},
-  };
-  const stage1: BtNode = {
-    id: 'stage1',
-    tick: () => {
-      stage1Ticks++;
-      return { status: 'RUNNING', requests: [] };
-    },
-    halt: () => {},
-  };
-
-  const tree = createTree(
-    recovery('recNode', primary, stagedRecovery('stagedRec', [stage0, stage1]), { maxRetries: 1 })
-  );
-
-  const res = tree.tick(snapshot());
-  assert.equal(res.status, 'RUNNING');
-  assert.equal(stage0Ticks, 1, 'Stage 0 attempted first');
-  assert.equal(stage1Ticks, 1, 'Stage 1 immediately executed in same tick when stage 0 failed');
 });

@@ -4,16 +4,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createBot, type Bot } from 'mineflayer';
 import { startBot } from '../../src/bot.ts';
 
-test('Paper Stage 3: owner chat follow / unfollow switching', { timeout: 45_000 }, async t => {
+test('Paper E2E: owner chat follow / unfollow switching', { timeout: 45_000 }, async t => {
   const host = process.env.BOT_HOST ?? '127.0.0.1';
   const port = process.env.BOT_PORT ?? '25565';
   const { bot, companion } = startBot({
     BOT_HOST: host,
     BOT_PORT: port,
-    BOT_OWNER: 'Stage3Owner',
-    BOT_USERNAME: 'Stage3Bot',
+    BOT_OWNER: 'TestOwner',
+    BOT_USERNAME: 'TestBot',
   });
-  const owner = createBot({ host, port: Number(port), username: 'Stage3Owner', auth: 'offline' });
+  const owner = createBot({ host, port: Number(port), username: 'TestOwner', auth: 'offline' });
   owner.on('error', error => console.error('[test owner]', error.message));
   t.after(() => {
     companion.dispose();
@@ -52,22 +52,22 @@ test('Paper Stage 3: owner chat follow / unfollow switching', { timeout: 45_000 
   await until(() => companion.snapshot().world.master.entityId !== null);
 
   // follow
-  owner.chat('follow');
+  owner.chat('!follow');
   await until(() => companion.snapshot().intent.mode === 'FOLLOW');
   assert.equal(companion.snapshot().intent.mode, 'FOLLOW');
 
   // unfollow
   await delay(1100);
-  owner.chat('unfollow');
+  owner.chat('!unfollow');
   await until(() => companion.snapshot().intent.mode === 'STAY');
   assert.equal(companion.snapshot().intent.mode, 'STAY');
 
   // status
   let status = '';
   owner.on('chat', (username, message) => {
-    if (username === 'Stage3Bot' && message.includes('HP=')) status = message;
+    if (username === 'TestBot' && message.includes('HP=')) status = message;
   });
   await delay(1100);
-  owner.chat('status');
+  owner.chat('!status');
   await until(() => status.includes('Intent=STAY'));
 });

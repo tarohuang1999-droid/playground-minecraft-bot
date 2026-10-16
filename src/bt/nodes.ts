@@ -212,32 +212,7 @@ export function parallel(
     },
   };
 }
-export function stagedRecovery(id: string, stages: readonly BtNode[]): BtNode {
-  return {
-    id,
-    tick(ctx) {
-      const current = state(ctx, id);
-      current.cursor ??= 0;
-      while (current.cursor < stages.length) {
-        const stage = stages[current.cursor]!;
-        const outcome = stage.tick(ctx);
-        if (outcome.status === 'RUNNING') return outcome;
-        stage.halt(ctx);
-        if (outcome.status === 'SUCCESS') {
-          current.cursor++;
-          return outcome;
-        }
-        // Stage failed, advance to next stage in the same tick
-        current.cursor++;
-      }
-      ctx.states.delete(id);
-      return result('FAILURE');
-    },
-    halt(ctx) {
-      stages.forEach(s => s.halt(ctx));
-    },
-  };
-}
+
 export function retry(
   id: string,
   child: BtNode,
