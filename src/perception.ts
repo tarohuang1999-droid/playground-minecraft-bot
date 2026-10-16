@@ -566,14 +566,6 @@ export function findAvailableFarmland(
           : new Vec3(candidate.position.x, candidate.position.y + 1, candidate.position.z);
         const above = b.blockAt(abovePos);
         if (!above || (above.name !== 'air' && above.name !== 'cave_air')) return false;
-        if (
-          above.light !== undefined &&
-          above.skyLight !== undefined &&
-          above.light < 8 &&
-          above.skyLight < 8
-        ) {
-          return false;
-        }
       }
       const dx = candidate.position.x - rallyPoint.x;
       const dz = candidate.position.z - rallyPoint.z;
@@ -601,15 +593,6 @@ export function findAvailableFarmland(
       const dz = block.position.z - rallyPoint.z;
       if (Math.hypot(dx, dz) > maxRadius) continue;
       if (block.above && block.above.name !== 'air' && block.above.name !== 'cave_air') continue;
-      if (
-        block.above &&
-        block.above.light !== undefined &&
-        block.above.skyLight !== undefined &&
-        block.above.light < 8 &&
-        block.above.skyLight < 8
-      ) {
-        continue;
-      }
       return position(block.position);
     }
   }

@@ -305,7 +305,6 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
   const lookAtCalls: any[] = [];
   const equipCalls: any[] = [];
   const placeCalls: any[] = [];
-  let planted = false;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mcData = require('prismarine-registry')('1.20.2');
@@ -334,16 +333,10 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
       equipCalls.push({ item, slot });
     },
     blockAt(pos: any) {
-      if (pos.y > 64) {
-        return planted
-          ? { position: pos, name: 'wheat' }
-          : { position: pos, name: 'air', light: 15, skyLight: 15 };
-      }
       return { position: pos, name: 'farmland' };
     },
     async placeBlock(block: any, vec: any) {
       placeCalls.push({ block, vec });
-      planted = true;
     },
   };
 
@@ -391,7 +384,7 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
   adapter.update!(ctx);
 
   // Give async planting a microtask tick
-  await new Promise(resolve => setTimeout(resolve, 350));
+  await new Promise(resolve => setTimeout(resolve, 250));
 
   assert.equal(lookAtCalls.length, 1, 'lookAt should be called towards farmland');
   assert.equal(equipCalls.length, 1, 'equip should be called with wheat_seeds');
@@ -405,7 +398,6 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
   const activateBlockCalls: any[] = [];
   const swingArmCalls: any[] = [];
   let plantedPos: any = null;
-  let activated = false;
 
   const fakeBot: any = {
     entity: { id: 1, position: { x: 1, y: 64, z: 0 } },
@@ -416,16 +408,10 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
     async lookAt() {},
     async equip() {},
     blockAt(pos: any) {
-      if (pos.y > 64) {
-        return activated
-          ? { position: pos, name: 'wheat' }
-          : { position: pos, name: 'air', light: 15, skyLight: 15 };
-      }
       return { position: pos, name: 'farmland' };
     },
     async activateBlock(block: any) {
       activateBlockCalls.push(block);
-      activated = true;
     },
     swingArm(hand: string) {
       swingArmCalls.push(hand);
@@ -462,7 +448,7 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
   adapter.start(ctx);
   adapter.update!(ctx);
 
-  await new Promise(resolve => setTimeout(resolve, 350));
+  await new Promise(resolve => setTimeout(resolve, 250));
 
   assert.equal(activateBlockCalls.length, 1, 'activateBlock should be called');
   assert.equal(activateBlockCalls[0]?.name, 'farmland');
@@ -640,105 +626,4 @@ test('farming integration: 5 consecutive planting failures triggers circuit brea
   assert.equal(consecutiveFailures, 5);
   assert.equal(modeEnqueued, 'IDLE');
   assert.ok(chatMessages.includes('Farming failed: 5 consecutive planting attempts failed.'));
-});
-
-test('farming perception: filters out farmland with insufficient light level (< 8)', () => {
-  const rallyPoint: Position = { x: 10, y: 64, z: 10 };
-  const fakeBot: any = {
-    blocks: {
-      darkFarmland: {
-        name: 'farmland',
-        position: { x: 12, y: 64, z: 10 },
-        above: { name: 'air', light: 4, skyLight: 0 }, // Both < 8 -> rejected
-      },
-      litFarmland: {
-        name: 'farmland',
-        position: { x: 15, y: 64, z: 10 },
-        above: { name: 'air', light: 9, skyLight: 0 }, // Torch lit >= 8 -> accepted
-      },
-    },
-  };
-
-  const perception = createPerception(fakeBot, 'owner');
-  const found = perception.getAvailableFarmland(rallyPoint, 25);
-  assert.ok(found);
-  assert.equal(found?.x, 15, 'Should select the lit farmland and skip the dark one');
-});
-
-test('farming perception: accepts farmland when light data is undefined', () => {
-  const rallyPoint: Position = { x: 10, y: 64, z: 10 };
-  const fakeBot: any = {
-    blocks: {
-      farmland: {
-        name: 'farmland',
-        position: { x: 12, y: 64, z: 10 },
-        above: { name: 'air' }, // light undefined -> accepted gracefully
-      },
-    },
-  };
-
-  const perception = createPerception(fakeBot, 'owner');
-  const found = perception.getAvailableFarmland(rallyPoint, 25);
-  assert.ok(found);
-  assert.equal(found?.x, 12);
-});
-
-test('farming adapter: farmPlant fails and triggers onFarmlandFailed when light level is insufficient (< 8)', async () => {
-  let failedPos: any = null;
-  const fakeBot: any = {
-    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
-    pathfinder: { setGoal() {}, setMovements() {} },
-    inventory: {
-      items: () => [{ name: 'wheat_seeds', type: 100 }],
-    },
-    async lookAt() {},
-    async equip() {},
-    blockAt(pos: any) {
-      if (pos.y > 64) {
-        // Space above farmland has light 0 (dark underground/night)
-        return { position: pos, name: 'air', light: 0, skyLight: 0 };
-      }
-      return { position: pos, name: 'farmland' };
-    },
-    async placeBlock() {
-      throw new Error('Should not be called when light is insufficient');
-    },
-  };
-
-  const farming = createFarming(fakeBot, {
-    onFarmlandFailed: pos => {
-      failedPos = pos;
-    },
-  });
-
-  const request: ActionRequest = {
-    nodeId: 'FarmPlant',
-    runId: 'farm-dark-test',
-    actionType: 'FarmPlant',
-    targetId: null,
-    priority: 30,
-    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
-    params: { x: 1, y: 64, z: 0, seedItem: 'wheat_seeds', cropType: 'wheat' },
-  };
-
-  const board = createBlackboard('owner');
-  const ctx: ActionContext = {
-    request,
-    token: 1,
-    generation: 0,
-    signal: new AbortController().signal,
-    isActive: () => true,
-    getSnapshot: () => board.snapshot(0),
-  };
-
-  const adapter = farming.farmPlant(request);
-  adapter.start(ctx);
-  adapter.update!(ctx);
-
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  assert.ok(failedPos !== null, 'onFarmlandFailed should be called when light is insufficient');
-  assert.equal(failedPos.x, 1);
-  assert.equal(failedPos.y, 64);
-  assert.equal(failedPos.z, 0);
 });
