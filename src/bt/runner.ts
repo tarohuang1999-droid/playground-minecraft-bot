@@ -3,6 +3,7 @@ import type {
   BlackboardSnapshot,
   IntentState,
   Position,
+  WorkAreaState,
   WorldState,
 } from '../blackboard.ts';
 import type { Executor } from '../execution/executor.ts';
@@ -11,7 +12,12 @@ import type { BehaviorTree } from './nodes.ts';
 
 export type RunnerEvent =
   | { type: 'world'; world: WorldState }
-  | { type: 'intent'; mode: IntentState['mode']; targetPosition?: Position | null }
+  | {
+      type: 'intent';
+      mode: IntentState['mode'];
+      targetPosition?: Position | null;
+      workArea?: WorkAreaState | null;
+    }
   | { type: 'set_dig'; enabled: boolean }
   | { type: 'set_bridge'; enabled: boolean }
   | { type: 'status' };
@@ -46,7 +52,8 @@ export function createRunner(options: {
       events = new Map(); // Events raised below belong to the next decision.
       for (const event of batch.values()) {
         if (event.type === 'world') board.setWorld(event.world);
-        if (event.type === 'intent') board.setIntent(event.mode, time, event.targetPosition);
+        if (event.type === 'intent')
+          board.setIntent(event.mode, time, event.targetPosition, event.workArea);
         if (event.type === 'set_dig') board.setDig(event.enabled, time);
         if (event.type === 'set_bridge') board.setBridge(event.enabled, time);
       }

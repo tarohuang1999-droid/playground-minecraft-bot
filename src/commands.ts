@@ -1,4 +1,5 @@
 import type { IntentState } from './blackboard.ts';
+import { CROP_REGISTRY } from './config/index.ts';
 
 export type CommandEvent =
   | { type: 'intent'; mode: IntentState['mode'] }
@@ -8,6 +9,7 @@ export type CommandEvent =
   | { type: 'set_dig'; enabled: boolean }
   | { type: 'set_bridge'; enabled: boolean }
   | { type: 'item'; target: 'equipment' | 'inventory' }
+  | { type: 'farm'; crop: string | null }
   | { type: 'command_usage'; message: string }
   | { type: 'unknown'; raw: string };
 
@@ -58,6 +60,29 @@ export function parseCommand(
       if (arg === 'inventory' || arg === 'inv') return { type: 'item', target: 'inventory' };
     }
     return { type: 'command_usage', message: 'Usage: !item equipment | !item inventory' };
+  }
+
+  if (cmd === 'farm' || cmd === 'fram') {
+    if (tokens.length === 1) return { type: 'farm', crop: null };
+    if (tokens.length === 2) {
+      const rawCrop = tokens[1];
+      let matchedCrop: string | null = null;
+      for (const [cropKey, def] of Object.entries(CROP_REGISTRY)) {
+        if (
+          rawCrop === cropKey ||
+          rawCrop === def.blockName ||
+          rawCrop === def.seedItem ||
+          rawCrop === def.dropItem
+        ) {
+          matchedCrop = cropKey;
+          break;
+        }
+      }
+      if (matchedCrop) {
+        return { type: 'farm', crop: matchedCrop };
+      }
+    }
+    return { type: 'command_usage', message: 'Usage: !farm [wheat|carrot|potato|beetroot]' };
   }
 
   return { type: 'unknown', raw: clean };

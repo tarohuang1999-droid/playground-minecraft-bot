@@ -1,16 +1,17 @@
-import type { BlackboardSnapshot } from '../../blackboard.ts';
+import type { BlackboardSnapshot, Position } from '../../blackboard.ts';
 import { THRESHOLDS, type ResourceChannel } from '../../policy.ts';
 import { action, guard, reactiveSelector, retry, type BtNode } from '../nodes.ts';
 import type { NavigationLogger } from '../../actions/navigation.ts';
 import { navigationConfig } from '../../config/index.ts';
 
-export function workSubtree(
-  available: ReadonlySet<string>,
-  options?: {
-    onNavigationFailed?: ((reason: string, missionId: string) => void) | undefined;
-    logger?: NavigationLogger | undefined;
-  }
-) {
+export interface WorkSubtreeOptions {
+  onNavigationFailed?: ((reason: string, missionId: string) => void) | undefined;
+  onFarmingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED') => void) | undefined;
+  logger?: NavigationLogger | undefined;
+  getAvailableFarmland?: ((rallyPoint: Position, maxRadius: number) => Position | null) | undefined;
+}
+
+export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtreeOptions) {
   const logger = options?.logger;
   const getNavResources = (s: BlackboardSnapshot): readonly ResourceChannel[] => {
     if (s.intent.canDig || s.intent.allowBridge) {
@@ -175,11 +176,89 @@ export function workSubtree(
     { exit: s => !available.has('SetSpawn') || !canSetSpawn(s) }
   );
 
+  const canFarm = (s: BlackboardSnapshot) =>
+    s.world.self.isAlive && s.intent.mode === 'FARM' && !!s.intent.workArea;
+
+  const isFarmingActive = (s: BlackboardSnapshot) => {
+    if (!canFarm(s)) return false;
+    const workArea = s.intent.workArea!;
+    const elapsed = s.observedAt - workArea.startedAt;
+    if (elapsed >= workArea.maxDurationMs) return false;
+    const seeds = s.world.inventory.plantableSeeds ?? [];
+    const hasSeeds = seeds.some(seed => !workArea.cropType || seed.cropType === workArea.cropType);
+    if (!hasSeeds) return false;
+    const farmland = options?.getAvailableFarmland?.(workArea.rallyPoint, workArea.maxRadius);
+    return farmland !== null && farmland !== undefined;
+  };
+
+  const farmPlant = guard(
+    'FarmPlant-ready',
+    s => available.has('FarmPlant') && isFarmingActive(s),
+    action('FarmPlant', s => {
+      const workArea = s.intent.workArea!;
+      const seeds = s.world.inventory.plantableSeeds ?? [];
+      const matchingSeed = workArea.cropType
+        ? seeds.find(sd => sd.cropType === workArea.cropType)
+        : seeds[0];
+      const getFarmland = options?.getAvailableFarmland;
+      const farmland = getFarmland ? getFarmland(workArea.rallyPoint, workArea.maxRadius) : null;
+      const targetPos = farmland ?? workArea.rallyPoint;
+      return {
+        actionType: 'FarmPlant',
+        targetId: null,
+        params: {
+          x: targetPos.x,
+          y: targetPos.y,
+          z: targetPos.z,
+          seedItem: matchingSeed?.name ?? 'wheat_seeds',
+          cropType: matchingSeed?.cropType ?? 'wheat',
+        },
+      };
+    }),
+    { exit: s => !available.has('FarmPlant') || !isFarmingActive(s) }
+  );
+
+  const shouldReturnToRally = (s: BlackboardSnapshot) => {
+    if (!canFarm(s)) return false;
+    if (isFarmingActive(s)) return false;
+    const workArea = s.intent.workArea!;
+    const dist = Math.hypot(
+      s.world.self.position.x - workArea.rallyPoint.x,
+      s.world.self.position.z - workArea.rallyPoint.z
+    );
+    if (dist <= 1.5) {
+      const elapsed = s.observedAt - workArea.startedAt;
+      options?.onFarmingFinished?.(elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED');
+      return false;
+    }
+    return true;
+  };
+
+  const returnToRally = guard(
+    'ReturnToRally-ready',
+    s => available.has('ReturnToRally') && shouldReturnToRally(s),
+    action('ReturnToRally', s => {
+      const workArea = s.intent.workArea!;
+      return {
+        actionType: 'ReturnToRally',
+        targetId: null,
+        params: {
+          x: workArea.rallyPoint.x,
+          y: workArea.rallyPoint.y,
+          z: workArea.rallyPoint.z,
+        },
+      };
+    }),
+    { exit: s => !available.has('ReturnToRally') || !shouldReturnToRally(s) }
+  );
+
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
+    farmPlant,
     comeOnce,
     returnToBase,
+    returnToRally,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
     setSpawn,
   ]);

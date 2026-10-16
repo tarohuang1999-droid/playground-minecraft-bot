@@ -377,6 +377,7 @@ export function shouldJumpObstacle(bot: NavigationBot): boolean {
 export interface SetupMovementsOptions {
   canDig?: boolean;
   allowBridge?: boolean;
+  allowParkour?: boolean;
 }
 
 export function setupMovements(
@@ -398,7 +399,7 @@ export function setupMovements(
     const allowBridge = options?.allowBridge ?? false;
 
     movements.canDig = canDig;
-    movements.allowParkour = true; // Jump over 1-block gaps
+    movements.allowParkour = options?.allowParkour ?? true; // Jump over 1-block gaps (disabled on farmland)
     movements.allowSprinting = false; // Prevent sprint-simulation jump suppression bug
     movements.canOpenDoors = false; // Keep false in pathfinder! Our DoorManager handles opening doors cleanly without pathfinder's useOne bug
     movements.allow1by1towers = false; // Do not place scaffolding blocks under self
@@ -939,12 +940,15 @@ export function createNavigation(
           const now = Date.now();
 
           // 1. Check timeout
-          if (now - startTime > 4000) {
-            logger?.warn(`[navigation] PickupItem timed out (> 4s) for entity ${targetEntityId}`);
+          const timeoutMs = workConfig.pickupTimeoutMs ?? 5000;
+          if (now - startTime > timeoutMs) {
+            logger?.warn(
+              `[navigation] PickupItem timed out (> ${timeoutMs}ms) for entity ${targetEntityId}`
+            );
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             clearForwardStep();
-            return { status: 'FAILURE', reason: 'Pickup timed out after 4000ms' };
+            return { status: 'FAILURE', reason: `Pickup timed out after ${timeoutMs}ms` };
           }
 
           // 2. Check if item has been picked up (target entity disappeared from bot.entities)

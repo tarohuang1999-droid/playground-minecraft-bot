@@ -13,6 +13,8 @@ import { parseCommand } from './commands.ts';
 import { createNavigation, setupMovements } from './actions/navigation.ts';
 import { createInventoryAdapters } from './actions/inventory.ts';
 import { createCombatAdapter } from './actions/combat.ts';
+import { createFarming } from './actions/farming.ts';
+import { workConfig } from './config/index.ts';
 import { createLogger, type Logger } from './logger.ts';
 import { DEFAULT_STATE_FILE } from './state-storage.ts';
 
@@ -100,6 +102,20 @@ export function attachCompanion(
         SetSpawn: navigation.setSpawn,
       }
     : {};
+  let plantedCropsCount = 0;
+  const farming = createFarming(bot as any, {
+    logger,
+    onCropPlanted: cropType => {
+      plantedCropsCount++;
+      logger?.info(`[farming] Planted ${cropType} (total: ${plantedCropsCount})`);
+    },
+  });
+  const farmingAdapters = hasPathfinderOrPlugin
+    ? {
+        FarmPlant: farming.farmPlant,
+        ReturnToRally: farming.returnToRally,
+      }
+    : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,
     EmergencyEat: inventory.emergencyEat,
@@ -112,6 +128,7 @@ export function attachCompanion(
       Chat: chat.adapter,
       Combat: combat,
       ...navigationAdapters,
+      ...farmingAdapters,
       ...inventoryAdapters,
       ...options.adapters,
     },
@@ -120,6 +137,20 @@ export function attachCompanion(
   const tree = createCompanionTree(executor.availableActions(), {
     onNavigationFailed: handleNavigationFailed,
     logger,
+    getAvailableFarmland: (rallyPoint, maxRadius) =>
+      perception.getAvailableFarmland(rallyPoint, maxRadius),
+    onFarmingFinished: reason => {
+      logger?.info(`[farming] shift finished (${reason}), total planted: ${plantedCropsCount}`);
+      runner.enqueue({ type: 'intent', mode: 'STAY' });
+      if (reason === 'TIMEOUT') {
+        chat.enqueue(
+          `Farming shift completed (1 day limit reached). Planted ${plantedCropsCount} crops.`
+        );
+      } else {
+        chat.enqueue(`Farming completed. Planted ${plantedCropsCount} crops.`);
+      }
+      runner.requestUrgentTick();
+    },
   });
   const runner = createRunner({
     board,
@@ -367,6 +398,42 @@ export function attachCompanion(
         logger?.info(`[item] ${msg}`);
         chat.enqueue(msg);
       }
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'farm') {
+      const currentWorld = perception.sample();
+      const availableSeeds = currentWorld.inventory.plantableSeeds ?? [];
+      const matchingSeed = event.crop
+        ? availableSeeds.find(s => s.cropType === event.crop)
+        : availableSeeds[0];
+
+      if (!matchingSeed) {
+        logger?.warn('[chat] !farm rejected: no plantable seeds in inventory');
+        chat.enqueue('No plantable seeds in inventory!');
+        runner.requestUrgentTick();
+        return;
+      }
+
+      plantedCropsCount = 0;
+      const selfPos = currentWorld.self.position;
+      const rallyPoint = { x: selfPos.x, y: selfPos.y, z: selfPos.z };
+      logger?.info(
+        `[chat] accepted command: farm (targetCrop=${matchingSeed.cropType}, rally=(${rallyPoint.x.toFixed(1)}, ${rallyPoint.y.toFixed(1)}, ${rallyPoint.z.toFixed(1)}))`
+      );
+      runner.enqueue({
+        type: 'intent',
+        mode: 'FARM',
+        workArea: {
+          rallyPoint,
+          maxRadius: workConfig.farmWorkRadius,
+          startedAt: Date.now(),
+          maxDurationMs: workConfig.farmMaxDurationMs,
+          cropType: event.crop ?? matchingSeed.cropType,
+        },
+      });
+      chat.enqueue('Intent=FARM');
       runner.requestUrgentTick();
       return;
     }

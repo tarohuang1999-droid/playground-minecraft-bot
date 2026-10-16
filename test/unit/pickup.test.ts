@@ -397,3 +397,106 @@ test('pickup adapter: engages close-range lookAt and forward stepping, and clear
   assert.equal(controls['forward'], false, 'Forward stepping should be cleared on cancel');
   assert.equal(adapter.isStopped?.(), true, 'isStopped should return true after cancel');
 });
+
+test('pickup adapter: times out after 5000ms and transitions to idle on subsequent BT tick', () => {
+  const itemEntity = { id: 80, position: { x: 3, y: 64, z: 3 } };
+  let currentGoal: any = null;
+  const fakeBot = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    pathfinder: {
+      setGoal(goal: any) {
+        currentGoal = goal;
+      },
+    },
+    entities: {
+      80: itemEntity,
+    },
+    setControlState() {},
+  };
+
+  const nav = createNavigation(fakeBot as any);
+  const board = createBlackboard('dakaz');
+  const world = createWorld('dakaz');
+  world.self.isAlive = true;
+  world.self.position = { x: 0, y: 64, z: 0 };
+  world.inventory.freeSlots = 5;
+  world.nearbyDrops = [
+    {
+      entityId: 80,
+      name: 'item',
+      itemName: 'stick',
+      position: { x: 3, y: 64, z: 3 },
+      distance: 4.24,
+    },
+  ];
+  board.setWorld(world);
+  board.setIntent('STAY', 100);
+
+  const request: ActionRequest = {
+    nodeId: 'PickupItem',
+    runId: 'run-timeout-1',
+    actionType: 'PickupItem',
+    targetId: 80,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK'],
+    params: {},
+  };
+
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(100),
+  };
+
+  const adapter = nav.pickupItem(request);
+  adapter.start(ctx);
+  assert.ok(currentGoal !== null, 'Pathfinder goal should be set');
+
+  const arbiter = createArbiter();
+  const executor = createExecutor(arbiter, {
+    PickupItem: () => adapter,
+    Idle: () => ({ start() {}, cancel() {} }),
+  });
+
+  const available = new Set(['NormalFollow', 'CatchUpFollow', 'PickupItem', 'Idle']);
+  const tree = createCompanionTree(available);
+
+  // Reconcile and run
+  executor.reconcile([request], board.snapshot(100), 100);
+  assert.ok(executor.runtime().activeRuns['run-timeout-1']);
+
+  // Simulate time advancing past 5000ms
+  const originalNow = Date.now;
+  try {
+    const startTime = originalNow();
+    Date.now = () => startTime + 5001;
+
+    // Tick executor reconcile -> triggers adapter.update! which times out (> 5000ms)
+    executor.reconcile([request], board.snapshot(startTime + 5001), startTime + 5001);
+    assert.equal(currentGoal, null, 'Goal should be cleared on timeout');
+
+    // Executor flushes the failure and puts targetId 80 on cooldown
+    executor.flushResults(startTime + 5001);
+    const runtime = executor.runtime();
+    assert.equal(runtime.cooldowns[80], startTime + 5001 + THRESHOLDS.failureCooldownMs);
+
+    // Now update board snapshot with runtime cooldowns
+    board.setRuntime(runtime);
+    const nextSnapshot = board.snapshot(startTime + 5001);
+
+    // Tick BT: drop 80 is ignored due to cooldown, so BT falls through to 'idle'
+    const nextTick = tree.tick(nextSnapshot);
+    const idleReq = nextTick.requests.find(r => r.actionType === 'Idle');
+    assert.ok(idleReq, 'BT should transition to Idle when pickup times out');
+    assert.equal(
+      nextTick.requests.find(r => r.actionType === 'PickupItem'),
+      undefined,
+      'PickupItem should no longer be requested'
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+});

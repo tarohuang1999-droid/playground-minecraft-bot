@@ -140,10 +140,10 @@
 - `test/unit/commands.test.ts`：單元測試驗證 `!item equipment`、`!item inventory`、大小寫不敏感、無效參數 usage 提示與權限驗證。
 
 ### 2.2.4 驗收門檻
-- [ ] `!item equipment` 正確輸出六大部位裝備名稱（空位為 none）。
-- [ ] `!item inventory` 正確彙整輸出背包物品與數量，並顯示剩餘空槽位數。
-- [ ] 無效參數時輸出 `Usage: !item equipment | !item inventory`。
-- [ ] 不破壞既有 `!state` / `!status` 指令功能。
+- [x] `!item equipment` 正確輸出六大部位裝備名稱（空位為 none）。
+- [x] `!item inventory` 正確彙整輸出背包物品與數量，並顯示剩餘空槽位數。
+- [x] 無效參數時輸出 `Usage: !item equipment | !item inventory`。
+- [x] 不破壞既有 `!state` / `!status` 指令功能。
 
 ---
 
@@ -231,10 +231,10 @@
 - `test/unit/farming-plant.test.ts`：單元測試驗證多作物註冊、種子檢查、農地識別、防踐踏開關、工時逾時與播種流程。
 
 ### 2.4.4 驗收門檻
-- [ ] 無種子時下達 `!farm` 能即時警示並退出，不產生無謂走動。
-- [ ] 支援多種植物註冊架構，預設優先成功種植小麥 `wheat_seeds`。
-- [ ] 播種移動過程中不觸發跳躍，不破壞耕地方塊。
-- [ ] 種子用盡、無地可種或達 20 分鐘時限時平穩返回集合點。
+- [x] 無種子時下達 `!farm` 能即時警示並退出，不產生無謂走動。
+- [x] 支援多種植物註冊架構，預設優先成功種植小麥 `wheat_seeds`。
+- [x] 播種移動過程中不觸發跳躍，不破壞耕地方塊。
+- [x] 種子用盡、無地可種或達 20 分鐘時限時平穩返回集合點。
 
 ---
 

@@ -40,11 +40,20 @@ export interface WorldState {
     bestWeapon: { itemId: number; name: string; attackDamage: number } | null;
     equippedWeaponDamage: number;
     pendingArmorUpgrade: { itemId: number; slot: 'head' | 'torso' | 'legs' | 'feet' } | null;
+    plantableSeeds?: Array<{ name: string; count: number; cropType: string }>;
   };
 }
+export interface WorkAreaState {
+  rallyPoint: Position;
+  maxRadius: number;
+  startedAt: number;
+  maxDurationMs: number;
+  cropType?: string | null;
+}
 export interface IntentState {
-  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN';
+  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM';
   targetPosition?: Position | null;
+  workArea?: WorkAreaState | null;
   canDig: boolean;
   allowBridge: boolean;
   missionId: string;
@@ -98,6 +107,7 @@ export function createWorld(master: string = ''): WorldState {
       bestWeapon: null,
       equippedWeaponDamage: 0,
       pendingArmorUpgrade: null,
+      plantableSeeds: [],
     },
   };
 }
@@ -132,6 +142,7 @@ export function createBlackboard(master: string) {
     intent: {
       mode: 'IDLE',
       targetPosition: null,
+      workArea: null,
       canDig: false,
       allowBridge: false,
       missionId: nextMissionId('IDLE'),
@@ -144,11 +155,17 @@ export function createBlackboard(master: string) {
     setWorld(world: WorldState) {
       state.world = structuredClone(world);
     },
-    setIntent(mode: IntentState['mode'], now: number, targetPosition?: Position | null) {
+    setIntent(
+      mode: IntentState['mode'],
+      now: number,
+      targetPosition?: Position | null,
+      workArea?: WorkAreaState | null
+    ) {
       state.intent = {
         ...state.intent,
         mode,
         targetPosition: targetPosition ?? null,
+        workArea: workArea ?? null,
         missionId: nextMissionId(mode),
         updatedAt: now,
         intentRevision: state.intent.intentRevision + 1,

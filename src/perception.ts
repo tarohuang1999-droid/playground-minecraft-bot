@@ -1,5 +1,5 @@
 import { createWorld, type Position, type WorldState } from './blackboard.ts';
-import { THRESHOLDS } from './policy.ts';
+import { THRESHOLDS, CROP_REGISTRY } from './config/index.ts';
 import { Vec3 } from 'vec3';
 import { loadPersistentState, savePersistentState } from './state-storage.ts';
 
@@ -493,7 +493,73 @@ export function createPerception(
       const held = bot.heldItem ?? slots[36 + (bot.quickBarSlot ?? 0)];
       world.inventory.equippedWeaponDamage = held ? getWeaponDamage(held.name) : 0;
 
+      // 4. Plantable seeds:
+      const plantableSeeds: Array<{ name: string; count: number; cropType: string }> = [];
+      const seedCounts = new Map<string, { count: number; cropType: string }>();
+      for (const [cropKey, def] of Object.entries(CROP_REGISTRY)) {
+        for (const item of items) {
+          if (item && item.name === def.seedItem) {
+            const cnt = item.count ?? 1;
+            const existing = seedCounts.get(item.name);
+            if (existing) {
+              existing.count += cnt;
+            } else {
+              seedCounts.set(item.name, { count: cnt, cropType: cropKey });
+            }
+          }
+        }
+      }
+      for (const [name, info] of seedCounts) {
+        plantableSeeds.push({ name, count: info.count, cropType: info.cropType });
+      }
+      world.inventory.plantableSeeds = plantableSeeds;
+
       return world;
     },
+
+    getAvailableFarmland(rallyPoint: Position, maxRadius: number = 25): Position | null {
+      return findAvailableFarmland(bot, rallyPoint, maxRadius);
+    },
   };
+}
+
+export function findAvailableFarmland(
+  bot: PerceptionSource,
+  rallyPoint: Position,
+  maxRadius: number = 25
+): Position | null {
+  const b = bot as any;
+  if (typeof b.findBlock === 'function') {
+    const point = new Vec3(rallyPoint.x, rallyPoint.y, rallyPoint.z);
+    const block = b.findBlock({
+      matching: (candidate: any) => {
+        if (!candidate || candidate.name !== 'farmland') return false;
+        if (typeof b.blockAt === 'function') {
+          const abovePos = candidate.position.offset
+            ? candidate.position.offset(0, 1, 0)
+            : new Vec3(candidate.position.x, candidate.position.y + 1, candidate.position.z);
+          const above = b.blockAt(abovePos);
+          if (!above || (above.name !== 'air' && above.name !== 'cave_air')) return false;
+        }
+        const dx = candidate.position.x - rallyPoint.x;
+        const dz = candidate.position.z - rallyPoint.z;
+        return Math.hypot(dx, dz) <= maxRadius;
+      },
+      maxDistance: 32,
+      point,
+    });
+    if (block && block.position) {
+      return position(block.position);
+    }
+  } else if (b.blocks) {
+    for (const block of Object.values(b.blocks as Record<string, any>)) {
+      if (!block || block.name !== 'farmland' || !block.position) continue;
+      const dx = block.position.x - rallyPoint.x;
+      const dz = block.position.z - rallyPoint.z;
+      if (Math.hypot(dx, dz) > maxRadius) continue;
+      if (block.above && block.above.name !== 'air' && block.above.name !== 'cave_air') continue;
+      return position(block.position);
+    }
+  }
+  return null;
 }
