@@ -1,6 +1,7 @@
 import { goals, Movements } from 'mineflayer-pathfinder';
 import { Vec3 } from 'vec3';
 import { THRESHOLDS } from '../policy.ts';
+import { navigationConfig } from '../config/index.ts';
 import type { ActionAdapter, ActionContext, ActionRequest, ActionResult, AdapterFactory } from '../execution/types.ts';
 import {
   DIG_WHITELIST,
@@ -237,7 +238,7 @@ export class DoorManager {
         const doorKey = `${rootX},${rootY},${rootZ}`;
 
         const lastInteraction = this.doorCooldowns.get(doorKey) ?? 0;
-        if (now - lastInteraction < 1500) {
+        if (now - lastInteraction < navigationConfig.stallThresholdMs) {
           // Cooldown active for this door, prevent rapid open/close flapping
           continue;
         }
@@ -751,7 +752,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > 1500 && !isMoving && !doorManager.isInFlight()) {
+          if (now - lastProgressTime > navigationConfig.stallThresholdMs && !isMoving && !doorManager.isInFlight()) {
             logger?.warn('[navigation] GoalFollow path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
@@ -898,7 +899,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > 1500;
+          const progressStalled = (now - lastProgressTime) > navigationConfig.stallThresholdMs;
           if (progressStalled && !isMoving) {
             logger?.warn(`[navigation] PickupItem path obstructed or idle for entity ${targetEntityId}`);
             bot.pathfinder?.setGoal(null);
@@ -1145,7 +1146,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > 1500 && !isMoving && !doorManager.isInFlight()) {
+          if (now - lastProgressTime > navigationConfig.stallThresholdMs && !isMoving && !doorManager.isInFlight()) {
             logger?.warn('[navigation] ComeOnce path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
@@ -1273,7 +1274,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > 1500 && !isMoving && !doorManager.isInFlight()) {
+          if (now - lastProgressTime > navigationConfig.stallThresholdMs && !isMoving && !doorManager.isInFlight()) {
             logger?.warn('[navigation] ReturnToBase path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
@@ -1437,10 +1438,10 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          const progressStalled = (now - lastProgressTime) > 1500;
+          const progressStalled = (now - lastProgressTime) > navigationConfig.stallThresholdMs;
           const pathfinderIdle = !isMoving && (now - lastProgressTime) > 800;
 
-          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > 1500) {
+          if ((progressStalled || pathfinderIdle) && (now - lastRepathTime) > navigationConfig.stallThresholdMs) {
             logger?.info('[navigation] SetSpawn path obstructed or idle, recalculating...', { dist });
             lastRepathTime = now;
             lastProgressTime = now;

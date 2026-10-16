@@ -1,3 +1,5 @@
+import { THRESHOLDS } from './config/index.ts';
+
 export const RESOURCES = ['MOVE', 'LOOK', 'HAND', 'INVENTORY', 'VOICE'] as const;
 export type ResourceChannel = typeof RESOURCES[number];
 export const ACTION_POLICY = {
@@ -18,12 +20,5 @@ export const ACTION_POLICY = {
   Idle: { priority: 0, requiredResources: [] },
 } as const satisfies Record<string, { priority: number; requiredResources: readonly ResourceChannel[] }>;
 export type ActionType = keyof typeof ACTION_POLICY;
-export const THRESHOLDS = {
-  followEnter: 2.2, followExit: 1.2, catchUpEnter: 16, catchUpExit: 5,
-  retreatHealth: 6, retreatEnter: 12, retreatExit: 18, retreatSafeMs: 3000,
-  retreatMobCount: 3,
-  combatEnter: 8, combatExit: 16, combatMasterLimit: 24,
-  routineFood: 16, emergencyFood: 6, emergencyHealth: 10,
-  pickupRadius: 5, pickupMasterLimit: 10, failureCooldownMs: 30_000,
-  observationRadius: 32, chatIntervalMs: 1000, chatQueueLimit: 5,
-} as const;
+export { THRESHOLDS };
+

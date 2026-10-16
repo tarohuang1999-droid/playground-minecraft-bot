@@ -1,34 +1,7 @@
-export const DIG_WHITELIST: ReadonlySet<string> = new Set([
-  // Dirt & soil
-  'dirt',
-  'grass_block',
-  'coarse_dirt',
-  'podzol',
-  'mud',
-  // Sand & gravel
-  'sand',
-  'red_sand',
-  'gravel',
-  // Foliage & leaves
-  'oak_leaves',
-  'birch_leaves',
-  'spruce_leaves',
-  'jungle_leaves',
-  'acacia_leaves',
-  'dark_oak_leaves',
-  'mangrove_leaves',
-  'cherry_leaves',
-  'azalea_leaves',
-  'flowering_azalea_leaves',
-  'vine',
-  // Stone
-  'cobblestone',
-]);
+import { DIG_WHITELIST, PLACE_WHITELIST } from '../config/navigation.config.ts';
 
-export const PLACE_WHITELIST: ReadonlySet<string> = new Set([
-  'dirt',
-  'cobblestone',
-]);
+export { DIG_WHITELIST, PLACE_WHITELIST };
+
 
 export interface NavigationTaskState {
   missionId: string;

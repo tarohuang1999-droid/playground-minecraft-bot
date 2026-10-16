@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Position } from './blackboard.ts';
+import { systemConfig } from './config/system.config.ts';
 
 export interface PersistentState {
   base: Position | null;
@@ -8,7 +9,8 @@ export interface PersistentState {
 }
 
 export const DEFAULT_DATA_DIR = path.resolve(process.cwd(), 'data');
-export const DEFAULT_STATE_FILE = path.join(DEFAULT_DATA_DIR, 'state.json');
+export const DEFAULT_STATE_FILE = path.resolve(process.cwd(), systemConfig.stateStorageFile);
+
 
 export function loadPersistentState(filePath: string = DEFAULT_STATE_FILE): PersistentState {
   try {

@@ -2,6 +2,7 @@ import type { BlackboardSnapshot } from '../../blackboard.ts';
 import { THRESHOLDS, type ResourceChannel } from '../../policy.ts';
 import { action, guard, reactiveSelector, retry, type BtNode } from '../nodes.ts';
 import type { NavigationLogger } from '../../actions/navigation.ts';
+import { navigationConfig } from '../../config/index.ts';
 
 export function workSubtree(
   available: ReadonlySet<string>,
@@ -26,7 +27,7 @@ export function workSubtree(
       `${id}-recovery`,
       primaryNode,
       {
-        maxRetries: 2,
+        maxRetries: navigationConfig.recoveryMaxRetries,
         onFinalFailure: (ctx) => {
           const missionId = ctx.snapshot.intent.missionId ?? '';
           logger?.warn(`[recovery] ${id} navigation attempts exhausted; navigation failed for mission "${missionId}"`);
