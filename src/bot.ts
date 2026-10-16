@@ -90,8 +90,6 @@ export function attachCompanion(
     ComeOnce: navigation.comeOnce,
     ReturnToBase: navigation.returnToBase,
     SetSpawn: navigation.setSpawn,
-    UnstickCorner: navigation.unstickCorner,
-    DetourWaypoint: navigation.detourWaypoint,
   } : {};
   const inventoryAdapters = {
     RoutineEat: inventory.routineEat,

@@ -10,6 +10,8 @@ import {
   NavigationExecutionBoundary,
   createNavigationTaskState,
   setupMovements,
+  getDoorClearCenter,
+  sanitizeDoorWaypoints,
   type NavigationRunContext,
 } from '../../src/actions/navigation.ts';
 import { createArbiter } from '../../src/execution/arbiter.ts';
@@ -369,4 +371,131 @@ test('Movements: getMoveDiagonal prohibits diagonal moves when either orthogonal
   assert.equal(neighbors3[0].x, 1);
   assert.equal(neighbors3[0].y, 64);
   assert.equal(neighbors3[0].z, 1);
+});
+
+test('Movements: getMoveDiagonal prohibits diagonal moves when any adjacent, origin, or target block is a door', () => {
+  const bot = createMockBot();
+  const movements = setupMovements(bot, undefined, { canDig: false, allowBridge: false });
+  assert.ok(movements);
+
+  const worldMap = new Map<string, any>();
+  const setBlock = (x: number, y: number, z: number, b: any) => {
+    worldMap.set(`${x},${y},${z}`, {
+      position: new Vec3(x, y, z),
+      shapes: b.boundingBox === 'block' ? (b.shapes ?? [[0, 0, 0, 1, 1, 1]]) : [],
+      ...b,
+    });
+  };
+
+  bot.blockAt = (p: any) => {
+    const key = `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`;
+    return worldMap.get(key) ?? {
+      name: 'air',
+      type: 0,
+      boundingBox: 'empty',
+      shapes: [],
+      position: p,
+    };
+  };
+
+  const node: any = { x: 0, y: 64, z: 0, remainingBlocks: 0 };
+  const stone = { name: 'stone', type: mcData.blocksByName.stone.id, boundingBox: 'block' };
+  const openDoor = {
+    name: 'oak_door',
+    type: mcData.blocksByName.oak_door.id,
+    boundingBox: 'block',
+    shapes: [[0, 0, 0, 0.1875, 1, 1]],
+    _properties: { open: true },
+  };
+
+  // Base ground safe
+  setBlock(0, 63, 0, stone);
+  setBlock(1, 63, 1, stone);
+  setBlock(0, 63, 1, stone);
+  setBlock(1, 63, 0, stone);
+
+  // 1. Side 1 is an open door: must prohibit diagonal move (door occupies lateral space)
+  setBlock(0, 64, 1, openDoor);
+  const res1: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, res1);
+  assert.equal(res1.length, 0, 'Must prohibit diagonal move when Side 1 has a door');
+
+  // 2. Side 2 is an open door
+  worldMap.delete('0,64,1');
+  setBlock(1, 64, 0, openDoor);
+  const res2: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, res2);
+  assert.equal(res2.length, 0, 'Must prohibit diagonal move when Side 2 has a door');
+
+  // 3. Destination is a door: cannot enter doorway diagonally
+  worldMap.delete('1,64,0');
+  setBlock(1, 64, 1, openDoor);
+  const res3: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, res3);
+  assert.equal(res3.length, 0, 'Must prohibit diagonal move when destination is a door');
+
+  // 4. Origin is a door: cannot exit doorway diagonally
+  worldMap.delete('1,64,1');
+  setBlock(0, 64, 0, openDoor);
+  const res4: any[] = [];
+  movements.getMoveDiagonal(node, { x: 1, z: 1 } as any, res4);
+  assert.equal(res4.length, 0, 'Must prohibit diagonal move when origin is a door');
+});
+
+test('Door clearance: getDoorClearCenter shifts body target away from open door leaf into passage center', () => {
+  // Leaf along negative X (0 .. 0.1875) -> clear center x: (0.1875 + 1.0)/2 = 0.59375
+  const doorNegX = { shapes: [[0, 0, 0, 0.1875, 1, 1]] };
+  const cNegX = getDoorClearCenter(doorNegX);
+  assert.equal(cNegX.offsetX, 0.59375);
+  assert.equal(cNegX.offsetZ, 0.5);
+
+  // Leaf along positive X (0.8125 .. 1.0) -> clear center x: 0.8125/2 = 0.40625
+  const doorPosX = { shapes: [[0.8125, 0, 0, 1.0, 1, 1]] };
+  const cPosX = getDoorClearCenter(doorPosX);
+  assert.equal(cPosX.offsetX, 0.40625);
+  assert.equal(cPosX.offsetZ, 0.5);
+
+  // Leaf along negative Z (0 .. 0.1875) -> clear center z: 0.59375
+  const doorNegZ = { shapes: [[0, 0, 0, 1, 1, 0.1875]] };
+  const cNegZ = getDoorClearCenter(doorNegZ);
+  assert.equal(cNegZ.offsetX, 0.5);
+  assert.equal(cNegZ.offsetZ, 0.59375);
+
+  // Leaf along positive Z (0.8125 .. 1.0) -> clear center z: 0.40625
+  const doorPosZ = { shapes: [[0, 0, 0.8125, 1, 1, 1.0]] };
+  const cPosZ = getDoorClearCenter(doorPosZ);
+  assert.equal(cPosZ.offsetX, 0.5);
+  assert.equal(cPosZ.offsetZ, 0.40625);
+});
+
+test('Door waypoints: sanitizeDoorWaypoints repositions corrupted door waypoints to floor and passage center', () => {
+  const bot = createMockBot();
+  const openDoor = {
+    name: 'oak_door',
+    type: mcData.blocksByName.oak_door.id,
+    boundingBox: 'block',
+    shapes: [[0, 0, 0, 0.1875, 1, 1]],
+    position: new Vec3(10, 64, 20),
+  };
+
+  bot.blockAt = (p: any) => {
+    if (Math.floor(p.x) === 10 && (Math.floor(p.y) === 64 || Math.floor(p.y) === 65) && Math.floor(p.z) === 20) {
+      return openDoor;
+    }
+    return { name: 'air', boundingBox: 'empty', shapes: [], position: p };
+  };
+
+  // Simulate pathfinder output where door waypoint was elevated to y=65 and shifted towards door leaf (x=10.296875)
+  const path = [
+    { x: 10.5, y: 64, z: 19.5 },
+    { x: 10.296875, y: 65, z: 20.5 },
+    { x: 10.5, y: 64, z: 21.5 },
+  ];
+
+  sanitizeDoorWaypoints(bot, path);
+
+  // Door waypoint at index 1 is corrected: y=64 (ground level) and x=10.59375 (center of open passage)
+  assert.equal(path[1]!.y, 64);
+  assert.equal(path[1]!.x, 10.59375);
+  assert.equal(path[1]!.z, 20.5);
 });

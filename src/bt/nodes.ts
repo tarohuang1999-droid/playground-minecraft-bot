@@ -169,6 +169,40 @@ export function stagedRecovery(id: string, stages: readonly BtNode[]): BtNode {
     },
   };
 }
+export function retry(
+  id: string,
+  child: BtNode,
+  options: { maxRetries?: number; onFinalFailure?: (ctx: BtContext) => void } = {}
+): BtNode {
+  const maxRetries = options.maxRetries ?? 1;
+  return {
+    id,
+    tick(ctx) {
+      const current = state(ctx, id);
+      current.retryCount ??= 0;
+
+      while (true) {
+        const outcome = child.tick(ctx);
+        if (outcome.status === 'RUNNING') return outcome;
+        child.halt(ctx);
+        if (outcome.status === 'SUCCESS') {
+          ctx.states.delete(id);
+          return outcome;
+        }
+        if (current.retryCount >= maxRetries) {
+          ctx.states.delete(id);
+          options.onFinalFailure?.(ctx);
+          return result('FAILURE');
+        }
+        current.retryCount++;
+      }
+    },
+    halt(ctx) {
+      child.halt(ctx);
+      ctx.states.delete(id);
+    },
+  };
+}
 export function recovery(
   id: string,
   primary: BtNode,

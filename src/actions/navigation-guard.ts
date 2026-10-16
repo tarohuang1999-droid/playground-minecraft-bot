@@ -36,28 +36,6 @@ export interface NavigationTaskState {
   allowBridge: boolean;
   digQuota: number;
   placeQuota: number;
-
-  // Recovery tracking
-  recoveryActive: boolean;
-  recoveryStart: number;
-  recoveryDeadline: number;
-  microUnstuckDone: boolean;
-  microUnstuckActive: boolean;
-  microUnstuckPhase: 'disengage' | 'clearance' | 'none';
-  microUnstuckPhaseUntil: number;
-  microUnstuckAttempts: number;
-  microUnstuckUntil: number;
-  waypointAttempts: number;
-  activeWaypoint: { x: number; y: number; z: number } | null;
-  waypointPhase: 'none' | 'navigating' | 'probing';
-  probeCountThisWaypoint: number;
-  lastWaypointNetPos: { x: number; y: number; z: number } | null;
-  lastProbeCheckTime: number;
-  preferredSide: 'left' | 'right' | null;
-  attemptedWaypoints: Array<{ x: number; y: number; z: number }>;
-  originPos: { x: number; y: number; z: number } | null;
-  normalMovingStart: number;
-  probeCount: number;
 }
 
 export function createNavigationTaskState(missionId: string, canDig = false, allowBridge = false): NavigationTaskState {
@@ -67,26 +45,6 @@ export function createNavigationTaskState(missionId: string, canDig = false, all
     allowBridge,
     digQuota: 3,
     placeQuota: 3,
-    recoveryActive: false,
-    recoveryStart: 0,
-    recoveryDeadline: 0,
-    microUnstuckDone: false,
-    microUnstuckActive: false,
-    microUnstuckPhase: 'none',
-    microUnstuckPhaseUntil: 0,
-    microUnstuckAttempts: 0,
-    microUnstuckUntil: 0,
-    waypointAttempts: 0,
-    activeWaypoint: null,
-    waypointPhase: 'none',
-    probeCountThisWaypoint: 0,
-    lastWaypointNetPos: null,
-    lastProbeCheckTime: 0,
-    preferredSide: null,
-    attemptedWaypoints: [],
-    originPos: null,
-    normalMovingStart: 0,
-    probeCount: 0,
   };
 }
 

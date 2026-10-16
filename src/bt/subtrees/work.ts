@@ -1,6 +1,6 @@
 import type { BlackboardSnapshot } from '../../blackboard.ts';
 import { THRESHOLDS, type ResourceChannel } from '../../policy.ts';
-import { action, guard, reactiveSelector, recovery, stagedRecovery, type BtNode } from '../nodes.ts';
+import { action, guard, reactiveSelector, retry, type BtNode } from '../nodes.ts';
 import type { NavigationLogger } from '../../actions/navigation.ts';
 
 export function workSubtree(
@@ -21,52 +21,15 @@ export function workSubtree(
   const withRecovery = (
     id: string,
     primaryNode: BtNode,
-    getTargetPos: (s: BlackboardSnapshot) => { x: number; y: number; z: number } | null
   ) => {
-    if (!available.has('DetourWaypoint')) {
-      return primaryNode;
-    }
-    const stages: BtNode[] = [];
-    // UnstickCorner disabled / commented out: corner clipping is resolved at pathfinder getMoveDiagonal level
-    // if (available.has('UnstickCorner')) {
-    //   stages.push(
-    //     action(`${id}-unstick`, s => {
-    //       logger?.info(`[recovery] ${id} recovery phase 1: issuing UnstickCorner`);
-    //       return {
-    //         actionType: 'UnstickCorner',
-    //         targetId: null,
-    //         params: { missionId: s.intent.missionId },
-    //         requiredResources: ['MOVE', 'LOOK'],
-    //       };
-    //     })
-    //   );
-    // }
-    if (available.has('DetourWaypoint')) {
-      const createDetourAction = (subId: string) => action(`${id}-detour-${subId}`, s => {
-        const pos = getTargetPos(s);
-        logger?.info(`[recovery] ${id} recovery phase 2: issuing DetourWaypoint towards (${pos?.x?.toFixed(1) ?? '?'}, ${pos?.y?.toFixed(1) ?? '?'}, ${pos?.z?.toFixed(1) ?? '?'})`);
-        return {
-          actionType: 'DetourWaypoint',
-          targetId: null,
-          params: {
-            missionId: s.intent.missionId,
-            ...(pos ? { targetX: pos.x, targetY: pos.y, targetZ: pos.z } : {}),
-          },
-          requiredResources: ['MOVE', 'LOOK'],
-        };
-      });
-      stages.push(createDetourAction('1'));
-      stages.push(createDetourAction('2'));
-    }
-    return recovery(
+    return retry(
       `${id}-recovery`,
       primaryNode,
-      stages.length === 1 ? stages[0]! : stagedRecovery(`${id}-rec-staged`, stages),
       {
-        maxRetries: 3,
+        maxRetries: 2,
         onFinalFailure: (ctx) => {
           const missionId = ctx.snapshot.intent.missionId ?? '';
-          logger?.warn(`[recovery] ${id} all recovery attempts exhausted; navigation failed for mission "${missionId}"`);
+          logger?.warn(`[recovery] ${id} navigation attempts exhausted; navigation failed for mission "${missionId}"`);
           options?.onNavigationFailed?.('Path obstructed. Stopped; send !follow, !come or !return to retry.', missionId);
         },
       }
@@ -89,7 +52,6 @@ export function workSubtree(
           },
           requiredResources: getNavResources(s),
         })),
-        s => s.world.master.position ? { x: s.world.master.position.x, y: s.world.master.position.y, z: s.world.master.position.z } : null
       ),
       { exit: s => !available.has(type) || !canFollow(s) || s.world.master.distance <= exit });
 
@@ -140,7 +102,6 @@ export function workSubtree(
           requiredResources: getNavResources(s),
         };
       }),
-      s => s.intent.targetPosition ? { x: s.intent.targetPosition.x, y: s.intent.targetPosition.y, z: s.intent.targetPosition.z } : null
     ),
     { exit: s => !available.has('ComeOnce') || !canCome(s) });
 
@@ -166,10 +127,6 @@ export function workSubtree(
           requiredResources: getNavResources(s),
         };
       }),
-      s => {
-        const dest = s.world.base ?? s.world.spawnPoint;
-        return dest ? { x: dest.x, y: dest.y, z: dest.z } : null;
-      }
     ),
     { exit: s => !available.has('ReturnToBase') || !canReturn(s) });
 
