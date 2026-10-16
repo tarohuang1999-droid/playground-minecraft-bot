@@ -1,6 +1,6 @@
 import type { BlackboardSnapshot } from '../../blackboard.ts';
 import { THRESHOLDS, type ResourceChannel } from '../../policy.ts';
-import { action, guard, reactiveSelector } from '../nodes.ts';
+import { action, guard, reactiveSelector, recovery, type BtNode } from '../nodes.ts';
 
 export function workSubtree(available: ReadonlySet<string>) {
   const getNavResources = (s: BlackboardSnapshot): readonly ResourceChannel[] => {
@@ -10,21 +10,67 @@ export function workSubtree(available: ReadonlySet<string>) {
     return ['MOVE', 'LOOK'];
   };
 
+  const withRecovery = (
+    id: string,
+    primaryNode: BtNode,
+    getTargetPos: (s: BlackboardSnapshot) => { x: number; y: number; z: number } | null
+  ) => {
+    if (!available.has('UnstickCorner') && !available.has('DetourWaypoint')) {
+      return primaryNode;
+    }
+    const recoveryActions: BtNode[] = [];
+    if (available.has('UnstickCorner')) {
+      recoveryActions.push(
+        action(`${id}-unstick`, s => ({
+          actionType: 'UnstickCorner',
+          targetId: null,
+          params: { missionId: s.intent.missionId },
+          requiredResources: ['MOVE', 'LOOK'],
+        }))
+      );
+    }
+    if (available.has('DetourWaypoint')) {
+      recoveryActions.push(
+        action(`${id}-detour`, s => {
+          const pos = getTargetPos(s);
+          return {
+            actionType: 'DetourWaypoint',
+            targetId: null,
+            params: {
+              missionId: s.intent.missionId,
+              ...(pos ? { targetX: pos.x, targetY: pos.y, targetZ: pos.z } : {}),
+            },
+            requiredResources: ['MOVE', 'LOOK'],
+          };
+        })
+      );
+    }
+    return recovery(
+      `${id}-recovery`,
+      primaryNode,
+      recoveryActions.length === 1 ? recoveryActions[0]! : reactiveSelector(`${id}-rec-sel`, recoveryActions),
+      { maxRetries: 2 }
+    );
+  };
+
   const canFollow = (s: BlackboardSnapshot) =>
     s.world.self.isAlive && s.intent.mode === 'FOLLOW' && s.world.master.entityId !== null;
 
   const follow = (type: 'CatchUpFollow' | 'NormalFollow', enter: number, exit: number) =>
     guard(`${type}-ready`, s => available.has(type) && canFollow(s) && s.world.master.distance > enter,
-      action(type, s => ({
-        actionType: type,
-        targetId: s.world.master.entityId,
-        params: {
-          canDig: s.intent.canDig,
-          allowBridge: s.intent.allowBridge,
-          missionId: s.intent.missionId,
-        },
-        requiredResources: getNavResources(s),
-      })),
+      withRecovery(type,
+        action(type, s => ({
+          actionType: type,
+          targetId: s.world.master.entityId,
+          params: {
+            canDig: s.intent.canDig,
+            allowBridge: s.intent.allowBridge,
+            missionId: s.intent.missionId,
+          },
+          requiredResources: getNavResources(s),
+        })),
+        s => s.world.master.position ? { x: s.world.master.position.x, y: s.world.master.position.y, z: s.world.master.position.z } : null
+      ),
       { exit: s => !available.has(type) || !canFollow(s) || s.world.master.distance <= exit });
 
   const getBestPickupTarget = (s: BlackboardSnapshot) => {
@@ -57,22 +103,25 @@ export function workSubtree(available: ReadonlySet<string>) {
 
   const comeOnce = guard('ComeOnce-ready',
     s => available.has('ComeOnce') && canCome(s),
-    action('ComeOnce', s => {
-      const pos = s.intent.targetPosition!;
-      return {
-        actionType: 'ComeOnce',
-        targetId: null,
-        params: {
-          x: pos.x,
-          y: pos.y,
-          z: pos.z,
-          canDig: s.intent.canDig,
-          allowBridge: s.intent.allowBridge,
-          missionId: s.intent.missionId,
-        },
-        requiredResources: getNavResources(s),
-      };
-    }),
+    withRecovery('ComeOnce',
+      action('ComeOnce', s => {
+        const pos = s.intent.targetPosition!;
+        return {
+          actionType: 'ComeOnce',
+          targetId: null,
+          params: {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            canDig: s.intent.canDig,
+            allowBridge: s.intent.allowBridge,
+            missionId: s.intent.missionId,
+          },
+          requiredResources: getNavResources(s),
+        };
+      }),
+      s => s.intent.targetPosition ? { x: s.intent.targetPosition.x, y: s.intent.targetPosition.y, z: s.intent.targetPosition.z } : null
+    ),
     { exit: s => !available.has('ComeOnce') || !canCome(s) });
 
   const canReturn = (s: BlackboardSnapshot) =>
@@ -80,22 +129,28 @@ export function workSubtree(available: ReadonlySet<string>) {
 
   const returnToBase = guard('ReturnToBase-ready',
     s => available.has('ReturnToBase') && canReturn(s),
-    action('ReturnToBase', s => {
-      const dest = s.world.base ?? s.world.spawnPoint!;
-      return {
-        actionType: 'ReturnToBase',
-        targetId: null,
-        params: {
-          x: dest.x,
-          y: dest.y,
-          z: dest.z,
-          canDig: s.intent.canDig,
-          allowBridge: s.intent.allowBridge,
-          missionId: s.intent.missionId,
-        },
-        requiredResources: getNavResources(s),
-      };
-    }),
+    withRecovery('ReturnToBase',
+      action('ReturnToBase', s => {
+        const dest = s.world.base ?? s.world.spawnPoint!;
+        return {
+          actionType: 'ReturnToBase',
+          targetId: null,
+          params: {
+            x: dest.x,
+            y: dest.y,
+            z: dest.z,
+            canDig: s.intent.canDig,
+            allowBridge: s.intent.allowBridge,
+            missionId: s.intent.missionId,
+          },
+          requiredResources: getNavResources(s),
+        };
+      }),
+      s => {
+        const dest = s.world.base ?? s.world.spawnPoint;
+        return dest ? { x: dest.x, y: dest.y, z: dest.z } : null;
+      }
+    ),
     { exit: s => !available.has('ReturnToBase') || !canReturn(s) });
 
   const canSetSpawn = (s: BlackboardSnapshot) =>

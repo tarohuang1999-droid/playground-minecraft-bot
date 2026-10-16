@@ -15,6 +15,7 @@ import {
   stepMicroUnstuck,
   cancelMicroUnstuck,
   checkLateralSafety,
+  isSafeBackward,
   findDetourWaypoint,
   checkChannelToTarget,
   NavigationRecoveryCoordinator,
@@ -31,6 +32,7 @@ export {
   stepMicroUnstuck,
   cancelMicroUnstuck,
   checkLateralSafety,
+  isSafeBackward,
   findDetourWaypoint,
   checkChannelToTarget,
   NavigationRecoveryCoordinator,
@@ -546,14 +548,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     return (request: ActionRequest): ActionAdapter => {
       let activeGoal: unknown = null;
       let isJumping = false;
-      const coordinator = new NavigationRecoveryCoordinator(
-        bot,
-        () => currentTaskState,
-        boundary,
-        doorManager,
-        getTime,
-        logger
-      );
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -576,28 +572,18 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             targetPos: target.position,
           });
 
-          coordinator.start();
+          lastProgressTime = getTime();
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
           activeGoal = new GoalFollow(target as any, range);
           bot.pathfinder.setGoal(activeGoal, true);
         },
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
-
+          const now = getTime();
           const snapshot = ctx.getSnapshot();
           const target = resolveTarget(bot, request.targetId, snapshot.world.master.username);
-          const targetPos = target?.position ? { x: target.position.x, y: target.position.y, z: target.position.z } : null;
-
-          // Check if micro-unstuck or recovery stall handling is in progress
-          const rec = coordinator.update(() => {
-            if (activeGoal) bot.pathfinder?.setGoal(activeGoal, true);
-          }, targetPos);
-          if (rec.actionResult) {
-            if (rec.actionResult.status === 'FAILURE') {
-              callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
-            }
-            return rec.actionResult;
-          }
-          if (rec.isStuckHandling) return;
 
           if (!target) {
             logger?.warn('[navigation] target lost during follow');
@@ -619,6 +605,27 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'SUCCESS' };
+          }
+
+          // Progress & Stall Detection
+          if (selfPos && lastPos) {
+            const mdist = Math.hypot(selfPos.x - lastPos.x, selfPos.y - lastPos.y, selfPos.z - lastPos.z);
+            if (mdist >= 0.15) {
+              lastPos = { ...selfPos };
+              lastProgressTime = now;
+            }
+          } else if (selfPos) {
+            lastPos = { ...selfPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          if (now - lastProgressTime > 1500 && !isMoving) {
+            logger?.warn('[navigation] GoalFollow path obstructed or stalled');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
+            return { status: 'FAILURE', reason: 'Path obstructed or stalled' };
           }
 
           // 1. Proactive Door Opening:
@@ -646,7 +653,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
         },
         cancel() {
           logger?.info('[navigation] GoalFollow cancelled');
-          coordinator.cancel();
           activeGoal = null;
           boundary.setActiveContext(null);
           if (typeof (bot as any).stopDigging === 'function') {
@@ -657,7 +663,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           doorManager.reset();
         },
         isStopped(): boolean {
-          return coordinator.isStopped();
+          return !doorManager.isInFlight();
         },
       };
     };
@@ -930,14 +936,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
       let isJumping = false;
-      const coordinator = new NavigationRecoveryCoordinator(
-        bot,
-        () => currentTaskState,
-        boundary,
-        doorManager,
-        getTime,
-        logger
-      );
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -966,14 +966,17 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           attachTaskContext(request, ctx);
           logger?.info(`[navigation] ComeOnce started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
-          coordinator.start();
+          lastProgressTime = getTime();
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
           bot.pathfinder.setGoal(activeGoal, false);
         },
 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
-
+          const now = getTime();
           const snapshot = ctx.getSnapshot();
           if (!targetPos) {
             const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
@@ -981,21 +984,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               : snapshot.intent.targetPosition;
             if (target) targetPos = { x: target.x, y: target.y, z: target.z };
           }
-
-          // Check if micro-unstuck or recovery stall handling is in progress
-          const rec = coordinator.update(() => {
-            if (targetPos) {
-              activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
-              bot.pathfinder?.setGoal(activeGoal, false);
-            }
-          }, targetPos);
-          if (rec.actionResult) {
-            if (rec.actionResult.status === 'FAILURE') {
-              callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
-            }
-            return rec.actionResult;
-          }
-          if (rec.isStuckHandling) return;
 
           if (!targetPos) {
             return { status: 'FAILURE', reason: 'Target position missing' };
@@ -1009,6 +997,27 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             bot.setControlState?.('jump', false);
             onArrival?.();
             return { status: 'SUCCESS' };
+          }
+
+          // Progress & Stall Detection
+          if (currentPos && lastPos) {
+            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            if (mdist >= 0.15) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          } else if (currentPos) {
+            lastPos = { ...currentPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          if (now - lastProgressTime > 1500 && !isMoving) {
+            logger?.warn('[navigation] ComeOnce path obstructed or stalled');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
+            return { status: 'FAILURE', reason: 'Path obstructed or stalled' };
           }
 
           doorManager.tryOpenDoorInFront(bot, logger);
@@ -1030,7 +1039,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
         cancel() {
           logger?.info('[navigation] ComeOnce cancelled');
-          coordinator.cancel();
           activeGoal = null;
           targetPos = null;
           boundary.setActiveContext(null);
@@ -1042,7 +1050,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           doorManager.reset();
         },
         isStopped(): boolean {
-          return coordinator.isStopped();
+          return !doorManager.isInFlight();
         },
       };
     };
@@ -1053,15 +1061,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
       let activeGoal: unknown = null;
       let targetPos: { x: number; y: number; z: number } | null = null;
       let isJumping = false;
-
-      const coordinator = new NavigationRecoveryCoordinator(
-        bot,
-        () => currentTaskState,
-        boundary,
-        doorManager,
-        getTime,
-        logger
-      );
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -1090,14 +1091,17 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           attachTaskContext(request, ctx);
           logger?.info(`[navigation] ReturnToBase started towards (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`);
-          coordinator.start();
+          lastProgressTime = getTime();
+          if (bot.entity?.position) {
+            lastPos = { ...bot.entity.position };
+          }
           activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
           bot.pathfinder.setGoal(activeGoal, false);
         },
 
         update(ctx: ActionContext): void | ActionResult {
           if (!ctx.isActive()) return;
-
+          const now = getTime();
           const snapshot = ctx.getSnapshot();
           if (!targetPos) {
             const target = (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number')
@@ -1105,21 +1109,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
               : (snapshot.world.base ?? snapshot.world.spawnPoint);
             if (target) targetPos = { x: target.x, y: target.y, z: target.z };
           }
-
-          // Check if micro-unstuck or recovery stall handling is in progress
-          const rec = coordinator.update(() => {
-            if (targetPos) {
-              activeGoal = new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0);
-              bot.pathfinder?.setGoal(activeGoal, false);
-            }
-          }, targetPos);
-          if (rec.actionResult) {
-            if (rec.actionResult.status === 'FAILURE') {
-              callbacks?.onNavigationFailed?.(rec.actionResult.reason, currentTaskState?.missionId ?? '');
-            }
-            return rec.actionResult;
-          }
-          if (rec.isStuckHandling) return;
 
           if (!targetPos) {
             return { status: 'FAILURE', reason: 'Destination missing' };
@@ -1133,6 +1122,27 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
             bot.setControlState?.('jump', false);
             onArrival?.();
             return { status: 'SUCCESS' };
+          }
+
+          // Progress & Stall Detection
+          if (currentPos && lastPos) {
+            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.y - lastPos.y, currentPos.z - lastPos.z);
+            if (mdist >= 0.15) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          } else if (currentPos) {
+            lastPos = { ...currentPos };
+            lastProgressTime = now;
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          if (now - lastProgressTime > 1500 && !isMoving) {
+            logger?.warn('[navigation] ReturnToBase path obstructed or stalled');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
+            return { status: 'FAILURE', reason: 'Path obstructed or stalled' };
           }
 
           doorManager.tryOpenDoorInFront(bot, logger);
@@ -1154,7 +1164,6 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
         cancel() {
           logger?.info('[navigation] ReturnToBase cancelled');
-          coordinator.cancel();
           activeGoal = null;
           targetPos = null;
           boundary.setActiveContext(null);
@@ -1166,7 +1175,239 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           doorManager.reset();
         },
         isStopped(): boolean {
-          return coordinator.isStopped();
+          return !doorManager.isInFlight();
+        },
+      };
+    };
+  }
+
+  function unstickCornerAdapter(): AdapterFactory {
+    return (_request: ActionRequest): ActionAdapter => {
+      let startTime = 0;
+      let phase: 'disengage' | 'clearance' = 'disengage';
+      let chosenSide: 'left' | 'right' | null = null;
+      let isDone = false;
+
+      return {
+        start(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          startTime = getTime();
+          phase = 'disengage';
+          isDone = false;
+
+          const left = checkLateralSafety(bot, 'left');
+          const right = checkLateralSafety(bot, 'right');
+
+          if (currentTaskState && currentTaskState.preferredSide) {
+            const otherSide = currentTaskState.preferredSide === 'left' ? 'right' : 'left';
+            const otherSafe = otherSide === 'left' ? left.safe : right.safe;
+            const prefSafe = currentTaskState.preferredSide === 'left' ? left.safe : right.safe;
+            if (otherSafe) chosenSide = otherSide;
+            else if (prefSafe) chosenSide = currentTaskState.preferredSide;
+          } else {
+            if (left.safe) chosenSide = 'left';
+            else if (right.safe) chosenSide = 'right';
+          }
+
+          if (!chosenSide) {
+            logger?.info('[recovery] UnstickCorner skipped: no safe lateral ground or cliff detected');
+            return { status: 'FAILURE', reason: 'No safe lateral clearance' };
+          }
+
+          if (currentTaskState) {
+            currentTaskState.preferredSide = chosenSide;
+            currentTaskState.microUnstuckAttempts++;
+          }
+
+          try { (bot.pathfinder as any)?.stop?.(); } catch {}
+          bot.pathfinder?.setGoal(null);
+          try { (bot as any).clearControlStates?.(); } catch {}
+
+          const canBack = isSafeBackward(bot);
+          if (canBack) {
+            bot.setControlState?.('back', true);
+          }
+          bot.setControlState?.(chosenSide, true);
+
+          logger?.info(`[recovery] UnstickCorner started: side=${chosenSide}, back=${canBack}`);
+        },
+
+        update(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          if (isDone) return { status: 'SUCCESS' };
+          if (!chosenSide) return { status: 'FAILURE', reason: 'No safe side chosen' };
+
+          const now = getTime();
+          const elapsed = now - startTime;
+
+          if (phase === 'disengage' && elapsed >= 200) {
+            phase = 'clearance';
+            bot.setControlState?.('back', false);
+            bot.setControlState?.('forward', true);
+            bot.setControlState?.(chosenSide, true);
+          }
+
+          if (elapsed >= 450) {
+            bot.setControlState?.('back', false);
+            bot.setControlState?.('forward', false);
+            bot.setControlState?.(chosenSide, false);
+            isDone = true;
+            logger?.info('[recovery] UnstickCorner completed successfully');
+            return { status: 'SUCCESS' };
+          }
+        },
+
+        cancel() {
+          if (chosenSide) {
+            bot.setControlState?.(chosenSide, false);
+          }
+          bot.setControlState?.('back', false);
+          bot.setControlState?.('forward', false);
+          bot.setControlState?.('left', false);
+          bot.setControlState?.('right', false);
+          isDone = true;
+        },
+
+        isStopped(): boolean {
+          return true;
+        },
+      };
+    };
+  }
+
+  function detourWaypointAdapter(): AdapterFactory {
+    return (request: ActionRequest): ActionAdapter => {
+      let activeGoal: unknown = null;
+      let startTime = 0;
+      let lastPos: { x: number; y: number; z: number } | null = null;
+      let lastProgressTime = 0;
+      let startWaypointPos: { x: number; y: number; z: number } | null = null;
+      let startOriginPos: { x: number; y: number; z: number } | null = null;
+      let targetPos: { x: number; y: number; z: number } | null = null;
+      let isJumping = false;
+
+      return {
+        start(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          if (!bot.pathfinder) {
+            return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
+          }
+
+          const snapshot = ctx.getSnapshot();
+          const currentPos = bot.entity?.position ?? snapshot.world.self.position;
+
+          if (typeof request.params.targetX === 'number' && typeof request.params.targetY === 'number' && typeof request.params.targetZ === 'number') {
+            targetPos = { x: request.params.targetX, y: request.params.targetY, z: request.params.targetZ };
+          } else if (typeof request.params.x === 'number' && typeof request.params.y === 'number' && typeof request.params.z === 'number') {
+            targetPos = { x: request.params.x, y: request.params.y, z: request.params.z };
+          } else if (snapshot.intent.targetPosition) {
+            targetPos = { ...snapshot.intent.targetPosition };
+          } else if (snapshot.world.master.position) {
+            targetPos = { ...snapshot.world.master.position };
+          } else if (snapshot.world.base) {
+            targetPos = { ...snapshot.world.base };
+          }
+
+          if (!targetPos) {
+            logger?.warn('[recovery] DetourWaypoint target position missing');
+            return { status: 'FAILURE', reason: 'Target position missing' };
+          }
+
+          if (!currentTaskState) {
+            currentTaskState = createNavigationTaskState(String(request.params.missionId || ''));
+          }
+
+          const detour = findDetourWaypoint(bot, currentPos, targetPos, currentTaskState, logger);
+          if (!detour) {
+            logger?.info('[recovery] DetourWaypoint found no viable waypoint');
+            return { status: 'FAILURE', reason: 'No detour waypoint found' };
+          }
+
+          currentTaskState.attemptedWaypoints.push(detour.pos);
+          currentTaskState.waypointAttempts++;
+          startWaypointPos = { ...detour.pos };
+          startOriginPos = { ...currentPos };
+          startTime = getTime();
+          lastProgressTime = startTime;
+          lastPos = { ...currentPos };
+
+          logger?.info(`[recovery] DetourWaypoint started towards (${detour.pos.x}, ${detour.pos.y}, ${detour.pos.z}) on ${detour.side}`);
+          activeGoal = new GoalNear(detour.pos.x, detour.pos.y, detour.pos.z, 1.2);
+          bot.pathfinder.setGoal(activeGoal, false);
+        },
+
+        update(ctx: ActionContext): void | ActionResult {
+          if (!ctx.isActive()) return;
+          const now = getTime();
+
+          // 1. Timeout (5s)
+          if (now - startTime > 5000) {
+            logger?.warn('[recovery] DetourWaypoint timed out (> 5s)');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'FAILURE', reason: 'DetourWaypoint timed out' };
+          }
+
+          const currentPos = bot.entity?.position ?? ctx.getSnapshot().world.self.position;
+
+          // 2. Arrival at detour waypoint (within 1.5 blocks)
+          if (startWaypointPos) {
+            const dist = Math.hypot(startWaypointPos.x - currentPos.x, startWaypointPos.z - currentPos.z);
+            if (dist <= 1.5) {
+              logger?.info('[recovery] DetourWaypoint arrived at waypoint');
+              bot.pathfinder?.setGoal(null);
+              bot.setControlState?.('jump', false);
+              return { status: 'SUCCESS' };
+            }
+          }
+
+          // 3. Mid-route probe towards original target: if channel is clear and bot has moved >= 1.5 blocks, restore early!
+          if (targetPos && startOriginPos) {
+            const movedFromStart = Math.hypot(currentPos.x - startOriginPos.x, currentPos.z - startOriginPos.z);
+            if (movedFromStart >= 1.5 && checkChannelToTarget(bot, currentPos, targetPos, 3)) {
+              logger?.info('[recovery] DetourWaypoint channel opened early towards target');
+              bot.pathfinder?.setGoal(null);
+              bot.setControlState?.('jump', false);
+              return { status: 'SUCCESS' };
+            }
+          }
+
+          // 4. Door and obstacle handling
+          doorManager.tryOpenDoorInFront(bot, logger);
+          if (shouldJumpObstacle(bot)) {
+            bot.setControlState?.('jump', true);
+            isJumping = true;
+          } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+            bot.setControlState?.('jump', false);
+            isJumping = false;
+          }
+
+          // 5. Stall detection
+          if (currentPos && lastPos) {
+            const mdist = Math.hypot(currentPos.x - lastPos.x, currentPos.z - lastPos.z);
+            if (mdist >= 0.15) {
+              lastPos = { ...currentPos };
+              lastProgressTime = now;
+            }
+          }
+
+          const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
+          if (now - lastProgressTime > 1500 && !isMoving) {
+            logger?.warn('[recovery] DetourWaypoint stalled');
+            bot.pathfinder?.setGoal(null);
+            bot.setControlState?.('jump', false);
+            return { status: 'FAILURE', reason: 'DetourWaypoint stalled' };
+          }
+        },
+
+        cancel() {
+          activeGoal = null;
+          bot.setControlState?.('jump', false);
+          bot.pathfinder?.setGoal(null);
+        },
+
+        isStopped(): boolean {
+          return true;
         },
       };
     };
@@ -1331,6 +1572,8 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
     comeOnce: comeOnceAdapter(callbacks?.onComeArrived),
     returnToBase: returnToBaseAdapter(callbacks?.onReturnArrived),
     setSpawn: setSpawnAdapter(callbacks?.onSpawnSet, callbacks?.onSpawnFailed),
+    unstickCorner: unstickCornerAdapter(),
+    detourWaypoint: detourWaypointAdapter(),
     doorManager,
     getTaskState: () => currentTaskState,
     boundary,

@@ -10,6 +10,8 @@ export const ACTION_POLICY = {
   PickupItem: { priority: 30, requiredResources: ['MOVE', 'LOOK'] },
   ComeOnce: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
   ReturnToBase: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
+  UnstickCorner: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
+  DetourWaypoint: { priority: 25, requiredResources: ['MOVE', 'LOOK'] },
   NormalFollow: { priority: 20, requiredResources: ['MOVE', 'LOOK'] },
   SetSpawn: { priority: 15, requiredResources: ['MOVE', 'LOOK', 'HAND'] },
   Chat: { priority: 10, requiredResources: ['VOICE'] },

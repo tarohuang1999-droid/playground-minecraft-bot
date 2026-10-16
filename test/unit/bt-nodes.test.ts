@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBlackboard } from '../../src/blackboard.ts';
-import { action, createTree, guard, parallel, reactiveSelector, sequence } from '../../src/bt/nodes.ts';
+import { action, createTree, guard, parallel, reactiveSelector, recovery, sequence } from '../../src/bt/nodes.ts';
 import type { BtNode } from '../../src/bt/nodes.ts';
 
 const snapshot = () => createBlackboard('owner').snapshot(0);
@@ -54,3 +54,79 @@ test('terminal action results advance a sequence without reissuing the completed
   board.setRuntime({ ...runtime, results: { [first.runId]: { status: 'SUCCESS' } } });
   assert.equal(tree.tick(board.snapshot(1)).requests[0]!.nodeId, 'second');
 });
+
+test('recovery node ticks recovery action on primary failure and retries primary on recovery success', () => {
+  let primaryStatus: 'RUNNING' | 'SUCCESS' | 'FAILURE' = 'RUNNING';
+  let recoveryStatus: 'RUNNING' | 'SUCCESS' | 'FAILURE' = 'RUNNING';
+  let primaryTicks = 0;
+  let recoveryTicks = 0;
+  let primaryHalts = 0;
+  let recoveryHalts = 0;
+
+  const primary: BtNode = {
+    id: 'primary',
+    tick: () => { primaryTicks++; return { status: primaryStatus, requests: [] }; },
+    halt: () => { primaryHalts++; },
+  };
+  const recAction: BtNode = {
+    id: 'recAction',
+    tick: () => { recoveryTicks++; return { status: recoveryStatus, requests: [] }; },
+    halt: () => { recoveryHalts++; },
+  };
+
+  const tree = createTree(recovery('recNode', primary, recAction, { maxRetries: 2 }));
+
+  // 1. Primary running
+  let res = tree.tick(snapshot());
+  assert.equal(res.status, 'RUNNING');
+  assert.equal(primaryTicks, 1);
+  assert.equal(recoveryTicks, 0);
+
+  // 2. Primary fails -> recovery ticks immediately and returns RUNNING
+  primaryStatus = 'FAILURE';
+  recoveryStatus = 'RUNNING';
+  res = tree.tick(snapshot());
+  assert.equal(res.status, 'RUNNING');
+  assert.equal(primaryHalts, 1);
+  assert.equal(recoveryTicks, 1);
+
+  // 3. Recovery succeeds -> primary retried in the same tick!
+  primaryStatus = 'RUNNING';
+  recoveryStatus = 'SUCCESS';
+  res = tree.tick(snapshot());
+  assert.equal(res.status, 'RUNNING');
+  assert.equal(recoveryHalts, 1);
+  assert.equal(primaryTicks, 3); // Retried primary!
+
+  // 4. Primary fails 2nd time -> recovery ticks again
+  primaryStatus = 'FAILURE';
+  recoveryStatus = 'RUNNING';
+  res = tree.tick(snapshot());
+  assert.equal(res.status, 'RUNNING');
+  assert.equal(recoveryTicks, 3);
+
+  // 5. Recovery succeeds again -> primary retried 3rd time
+  primaryStatus = 'FAILURE';
+  recoveryStatus = 'SUCCESS';
+  // Primary immediately fails 3rd time (maxRetries=2 reached) -> recovery node fails!
+  res = tree.tick(snapshot());
+  assert.equal(res.status, 'FAILURE');
+});
+
+test('recovery node returns FAILURE if recovery action fails', () => {
+  const primary: BtNode = {
+    id: 'primary',
+    tick: () => ({ status: 'FAILURE', requests: [] }),
+    halt: () => {},
+  };
+  const recAction: BtNode = {
+    id: 'recAction',
+    tick: () => ({ status: 'FAILURE', requests: [] }),
+    halt: () => {},
+  };
+
+  const tree = createTree(recovery('recNode', primary, recAction, { maxRetries: 1 }));
+  const res = tree.tick(snapshot());
+  assert.equal(res.status, 'FAILURE');
+});
+

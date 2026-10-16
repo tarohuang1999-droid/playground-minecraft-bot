@@ -3,7 +3,16 @@ import { ACTION_POLICY, type ActionType, type ResourceChannel } from '../policy.
 import type { ActionRequest, NodeStatus } from '../execution/types.ts';
 
 export interface TickResult { status: NodeStatus; requests: ActionRequest[] }
-interface NodeState { cursor?: number; activeIndex?: number; entered?: boolean; runId?: string; signature?: string; completed?: Set<number> }
+interface NodeState {
+  cursor?: number;
+  activeIndex?: number;
+  entered?: boolean;
+  runId?: string;
+  signature?: string;
+  completed?: Set<number>;
+  retryCount?: number;
+  phase?: 'primary' | 'recovery';
+}
 export interface BtContext {
   snapshot: BlackboardSnapshot;
   states: Map<string, NodeState>;
@@ -132,6 +141,57 @@ export function parallel(id: string, children: readonly BtNode[], options: { per
       return result('RUNNING', requests);
     },
     halt(ctx) { children.forEach(child => child.halt(ctx)); ctx.states.delete(id); },
+  };
+}
+export function recovery(
+  id: string,
+  primary: BtNode,
+  recoveryNode: BtNode,
+  options: { maxRetries?: number } = {}
+): BtNode {
+  const maxRetries = options.maxRetries ?? 1;
+  return {
+    id,
+    tick(ctx) {
+      const current = state(ctx, id);
+      current.retryCount ??= 0;
+      current.phase ??= 'primary';
+
+      while (true) {
+        if (current.phase === 'primary') {
+          const outcome = primary.tick(ctx);
+          if (outcome.status === 'RUNNING') return outcome;
+          primary.halt(ctx);
+          if (outcome.status === 'SUCCESS') {
+            ctx.states.delete(id);
+            return outcome;
+          }
+          if (current.retryCount >= maxRetries) {
+            ctx.states.delete(id);
+            return result('FAILURE');
+          }
+          current.retryCount++;
+          current.phase = 'recovery';
+        }
+
+        // phase === 'recovery'
+        const recOutcome = recoveryNode.tick(ctx);
+        if (recOutcome.status === 'RUNNING') return recOutcome;
+        recoveryNode.halt(ctx);
+        if (recOutcome.status === 'SUCCESS') {
+          current.phase = 'primary';
+          continue;
+        }
+        // Recovery failed
+        ctx.states.delete(id);
+        return result('FAILURE');
+      }
+    },
+    halt(ctx) {
+      primary.halt(ctx);
+      recoveryNode.halt(ctx);
+      ctx.states.delete(id);
+    },
   };
 }
 export function createTree(root: BtNode) {

@@ -418,6 +418,26 @@
 - [ ] 正常空曠跟隨不反覆 recovery；十分鐘內監聽器與資源用量沒有持續成長。
 - [ ] 提交前後量測摘要及可達性取捨；沒有量測不宣稱省 CPU 或記憶體。
 
+### 14.6 方案 A：ROS2 Nav2 風格行為樹脫困架構 (Behavior Tree Recovery Node)
+
+為解決底層 Action Adapter 內嵌狀態機所帶來的複雜度與狀態扭曲，全面解耦並重構為標準 Behavior Tree Recovery 架構：
+
+1. **Composite Node `recovery` (`src/bt/nodes.ts`)**：
+   - 包含 `primary` 與 `recoveryNode` 兩子節點，支援 `maxRetries`。
+   - `primary` 正常運行時返回 RUNNING / SUCCESS；若遭遇停滯或路徑不可達返回 FAILURE 時，BT 層 halt 主任務並切換至 `recoveryNode`。
+   - `recoveryNode` 完成後返回 SUCCESS，BT 層重設為 primary 並立即重試主任務；若重試次數超過上限或脫困動作失敗，則回報 FAILURE。
+2. **解耦脫困動作 Adapter (`src/actions/navigation.ts`, `src/policy.ts`)**：
+   - `UnstickCorner` (優先級 25，資源 MOVE+LOOK)：純粹 450ms 實體脫困動作（0..200ms 後撤+側向，200..450ms 前推側向），完成後返回 SUCCESS。
+   - `DetourWaypoint` (優先級 25，資源 MOVE+LOOK)：約 6 格法向量繞路 Waypoint 導航，抵達或通道探測暢通時返回 SUCCESS。
+   - 主導航 Adapters (`NormalFollow`, `CatchUpFollow`, `ComeOnce`, `ReturnToBase`)：回歸純粹直線/目標尋路，若停滯 > 1500ms 且無位移即直接返回 FAILURE，不私自維護內部多階段狀態機。
+3. **Behavior Tree 裝配 (`src/bt/subtrees/work.ts`)**：
+   - 使用 `withRecovery` 封裝移動任務，由 BT 頂層統一調度脫困序列。
+
+驗收：
+- [x] Composite node `recovery` 完整覆蓋單元測試。
+- [x] `UnstickCorner` 與 `DetourWaypoint` 單元測試通過。
+- [x] BT 整合脫困測試通過（Follow 卡住 → 觸發 UnstickCorner → 成功後自動恢復 Follow）。
+
 ---
 
 ## Stage 15: 綜合整合與端到端驗收測試 (Integration & Handoff Harness)
@@ -437,6 +457,36 @@
 | **E2E-06** | **有界局部繞行與死胡同回報** | 可達長牆在預算內繞行，途中可恢復原目標；死胡同最多三次或期限到即停止、回報一次，BT 不重啟；主人重新發送導航指令才重試。 |
 | **E2E-07** | **挖放開關與搶佔交接** | 預設不挖放；開啟後僅使用白名單與任務額度。進食／戰鬥搶佔及途中 off，確認舊插件操作停止後才交接，延遲回呼不能影響新 run。 |
 | **E2E-08** | **recovery 預算跨 run 延續** | 繞路途中切換 Follow/CatchUp、進食／戰鬥搶佔、開關切換後，次數、deadline 與額度不重置；過期停止且舊失敗回報不覆蓋新指令。 |
+
+---
+
+## Stage 16: 節點執行佇列快取與會話記憶 (Node Execution Queue Cache & Session Memory) [規劃中，暫不實作]
+
+### 16.1 階段目標
+提供環狀佇列快取（Ring-buffer Queue Cache，容量預設 50 筆），記錄 Behavior Tree 與 Action 的執行歷程與結果，作為執行軌跡監控與未來 LLM / JEV Agent 的短期會話記憶（Session Memory）。
+
+### 16.2 架構設計規範
+- **資料結構**：
+  - 採用固定大小（例如 50 筆）的環狀 FIFO 佇列，避免無界記憶體增長。
+  - 單筆紀錄格式：
+    ```typescript
+    export interface ExecutionRecord {
+      timestamp: number;
+      runId: string;
+      nodeId: string;
+      actionType: string;
+      status: 'RUNNING' | 'SUCCESS' | 'FAILURE' | 'PREEMPTED';
+      reason?: string;
+      durationMs: number;
+      summary?: Record<string, unknown>;
+    }
+    ```
+- **寫入時機**：
+  - 在 `src/execution/executor.ts` 或 BT tick 結算終止結果（SUCCESS / FAILURE / PREEMPTED）時追加紀錄。
+- **應用場景（未來規劃）**：
+  - **LLM / JEV Context**：當 Agent 被詢問「剛才為什麼卡住？」或需進行高階排程時，可提取最近 50 個 Action 的執行摘要作為 Session Memory。
+  - **診斷與可觀測性**：於除錯工具或日誌中輸出最近執行的動作序列，快速還原行為軌跡。
+- **本階段約束**：僅作設計規劃，本輪迭代暫不實作程式碼，恪守 YAGNI 原則與當前聚焦範圍。
 
 ---
 
