@@ -143,11 +143,37 @@ export function parallel(id: string, children: readonly BtNode[], options: { per
     halt(ctx) { children.forEach(child => child.halt(ctx)); ctx.states.delete(id); },
   };
 }
+export function stagedRecovery(id: string, stages: readonly BtNode[]): BtNode {
+  return {
+    id,
+    tick(ctx) {
+      const current = state(ctx, id);
+      current.cursor ??= 0;
+      while (current.cursor < stages.length) {
+        const stage = stages[current.cursor]!;
+        const outcome = stage.tick(ctx);
+        if (outcome.status === 'RUNNING') return outcome;
+        stage.halt(ctx);
+        if (outcome.status === 'SUCCESS') {
+          current.cursor++;
+          return outcome;
+        }
+        // Stage failed, advance to next stage in the same tick
+        current.cursor++;
+      }
+      ctx.states.delete(id);
+      return result('FAILURE');
+    },
+    halt(ctx) {
+      stages.forEach(s => s.halt(ctx));
+    },
+  };
+}
 export function recovery(
   id: string,
   primary: BtNode,
   recoveryNode: BtNode,
-  options: { maxRetries?: number } = {}
+  options: { maxRetries?: number; onFinalFailure?: (ctx: BtContext) => void } = {}
 ): BtNode {
   const maxRetries = options.maxRetries ?? 1;
   return {
@@ -163,11 +189,16 @@ export function recovery(
           if (outcome.status === 'RUNNING') return outcome;
           primary.halt(ctx);
           if (outcome.status === 'SUCCESS') {
+            recoveryNode.halt(ctx);
+            ctx.states.delete(recoveryNode.id);
             ctx.states.delete(id);
             return outcome;
           }
           if (current.retryCount >= maxRetries) {
+            recoveryNode.halt(ctx);
+            ctx.states.delete(recoveryNode.id);
             ctx.states.delete(id);
+            options.onFinalFailure?.(ctx);
             return result('FAILURE');
           }
           current.retryCount++;
@@ -183,13 +214,17 @@ export function recovery(
           continue;
         }
         // Recovery failed
+        recoveryNode.halt(ctx);
+        ctx.states.delete(recoveryNode.id);
         ctx.states.delete(id);
+        options.onFinalFailure?.(ctx);
         return result('FAILURE');
       }
     },
     halt(ctx) {
       primary.halt(ctx);
       recoveryNode.halt(ctx);
+      ctx.states.delete(recoveryNode.id);
       ctx.states.delete(id);
     },
   };

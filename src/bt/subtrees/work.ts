@@ -1,8 +1,16 @@
 import type { BlackboardSnapshot } from '../../blackboard.ts';
 import { THRESHOLDS, type ResourceChannel } from '../../policy.ts';
-import { action, guard, reactiveSelector, recovery, type BtNode } from '../nodes.ts';
+import { action, guard, reactiveSelector, recovery, stagedRecovery, type BtNode } from '../nodes.ts';
+import type { NavigationLogger } from '../../actions/navigation.ts';
 
-export function workSubtree(available: ReadonlySet<string>) {
+export function workSubtree(
+  available: ReadonlySet<string>,
+  options?: {
+    onNavigationFailed?: ((reason: string, missionId: string) => void) | undefined;
+    logger?: NavigationLogger | undefined;
+  }
+) {
+  const logger = options?.logger;
   const getNavResources = (s: BlackboardSnapshot): readonly ResourceChannel[] => {
     if (s.intent.canDig || s.intent.allowBridge) {
       return ['MOVE', 'LOOK', 'HAND', 'INVENTORY'];
@@ -18,38 +26,49 @@ export function workSubtree(available: ReadonlySet<string>) {
     if (!available.has('UnstickCorner') && !available.has('DetourWaypoint')) {
       return primaryNode;
     }
-    const recoveryActions: BtNode[] = [];
+    const stages: BtNode[] = [];
     if (available.has('UnstickCorner')) {
-      recoveryActions.push(
-        action(`${id}-unstick`, s => ({
-          actionType: 'UnstickCorner',
-          targetId: null,
-          params: { missionId: s.intent.missionId },
-          requiredResources: ['MOVE', 'LOOK'],
-        }))
-      );
-    }
-    if (available.has('DetourWaypoint')) {
-      recoveryActions.push(
-        action(`${id}-detour`, s => {
-          const pos = getTargetPos(s);
+      stages.push(
+        action(`${id}-unstick`, s => {
+          logger?.info(`[recovery] ${id} recovery phase 1: issuing UnstickCorner`);
           return {
-            actionType: 'DetourWaypoint',
+            actionType: 'UnstickCorner',
             targetId: null,
-            params: {
-              missionId: s.intent.missionId,
-              ...(pos ? { targetX: pos.x, targetY: pos.y, targetZ: pos.z } : {}),
-            },
+            params: { missionId: s.intent.missionId },
             requiredResources: ['MOVE', 'LOOK'],
           };
         })
       );
     }
+    if (available.has('DetourWaypoint')) {
+      const createDetourAction = (subId: string) => action(`${id}-detour-${subId}`, s => {
+        const pos = getTargetPos(s);
+        logger?.info(`[recovery] ${id} recovery phase 2: issuing DetourWaypoint towards (${pos?.x?.toFixed(1) ?? '?'}, ${pos?.y?.toFixed(1) ?? '?'}, ${pos?.z?.toFixed(1) ?? '?'})`);
+        return {
+          actionType: 'DetourWaypoint',
+          targetId: null,
+          params: {
+            missionId: s.intent.missionId,
+            ...(pos ? { targetX: pos.x, targetY: pos.y, targetZ: pos.z } : {}),
+          },
+          requiredResources: ['MOVE', 'LOOK'],
+        };
+      });
+      stages.push(createDetourAction('1'));
+      stages.push(createDetourAction('2'));
+    }
     return recovery(
       `${id}-recovery`,
       primaryNode,
-      recoveryActions.length === 1 ? recoveryActions[0]! : reactiveSelector(`${id}-rec-sel`, recoveryActions),
-      { maxRetries: 2 }
+      stages.length === 1 ? stages[0]! : stagedRecovery(`${id}-rec-staged`, stages),
+      {
+        maxRetries: 3,
+        onFinalFailure: (ctx) => {
+          const missionId = ctx.snapshot.intent.missionId ?? '';
+          logger?.warn(`[recovery] ${id} all recovery attempts exhausted; navigation failed for mission "${missionId}"`);
+          options?.onNavigationFailed?.('Path obstructed. Stopped; send !follow, !come or !return to retry.', missionId);
+        },
+      }
     );
   };
 

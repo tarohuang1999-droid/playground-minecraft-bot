@@ -621,7 +621,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
           if (now - lastProgressTime > 1500 && !isMoving) {
-            logger?.warn('[navigation] GoalFollow path obstructed or stalled');
+            logger?.warn('[navigation] GoalFollow path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
@@ -1013,7 +1013,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
           if (now - lastProgressTime > 1500 && !isMoving) {
-            logger?.warn('[navigation] ComeOnce path obstructed or stalled');
+            logger?.warn('[navigation] ComeOnce path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');
@@ -1138,7 +1138,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
           if (now - lastProgressTime > 1500 && !isMoving) {
-            logger?.warn('[navigation] ReturnToBase path obstructed or stalled');
+            logger?.warn('[navigation] ReturnToBase path obstructed or stalled (> 1500ms); reporting failure to BT recovery');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             callbacks?.onNavigationFailed?.('Path obstructed or stalled', currentTaskState?.missionId ?? '');

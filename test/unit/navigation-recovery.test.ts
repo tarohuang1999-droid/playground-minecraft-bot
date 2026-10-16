@@ -289,9 +289,17 @@ test('unstickCorner cancel cleans up manual controls', () => {
   assert.equal(adapter.isStopped!(), true);
 });
 
-test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorner, retry resumes NormalFollow', () => {
+test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorner, retry resumes NormalFollow, second stall triggers DetourWaypoint', () => {
   const available = new Set(['NormalFollow', 'UnstickCorner', 'DetourWaypoint']);
-  const treeRoot = workSubtree(available);
+  let failedReason: string | null = null;
+  let failedMission: string | null = null;
+
+  const treeRoot = workSubtree(available, {
+    onNavigationFailed: (reason, missionId) => {
+      failedReason = reason;
+      failedMission = missionId;
+    },
+  });
   const tree = createTree(treeRoot);
 
   const board = createBlackboard('owner');
@@ -307,18 +315,18 @@ test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorn
   let res = tree.tick(snap);
   assert.equal(res.status, 'RUNNING');
   assert.equal(res.requests[0]?.actionType, 'NormalFollow');
-  const followRunId = res.requests[0]!.runId;
+  const followRunId1 = res.requests[0]!.runId;
 
-  // Simulate NormalFollow fails (stalled)
+  // 1. Simulate NormalFollow fails (first stall)
   board.setRuntime({
     ...snap.runtime,
     results: {
       ...snap.runtime.results,
-      [followRunId]: { status: 'FAILURE', reason: 'Path obstructed or stalled' },
+      [followRunId1]: { status: 'FAILURE', reason: 'Path obstructed or stalled' },
     },
   });
 
-  // Tick 2: BT Recovery node catches failure and issues UnstickCorner
+  // Tick 2: BT Recovery node catches failure and issues Stage 0: UnstickCorner
   snap = board.snapshot(1);
   res = tree.tick(snap);
   assert.equal(res.status, 'RUNNING');
@@ -339,7 +347,42 @@ test('Behavior Tree integrated Recovery: NormalFollow stall triggers UnstickCorn
   res = tree.tick(snap);
   assert.equal(res.status, 'RUNNING');
   assert.equal(res.requests[0]?.actionType, 'NormalFollow');
-  assert.notEqual(res.requests[0]?.runId, followRunId); // Fresh runId!
+  const followRunId2 = res.requests[0]!.runId;
+  assert.notEqual(followRunId2, followRunId1); // Fresh runId!
+
+  // 2. Simulate NormalFollow fails again (second stall - wall continuous)
+  board.setRuntime({
+    ...snap.runtime,
+    results: {
+      ...snap.runtime.results,
+      [followRunId2]: { status: 'FAILURE', reason: 'Path obstructed or stalled' },
+    },
+  });
+
+  // Tick 4: BT Recovery node catches failure and issues Stage 1: DetourWaypoint!
+  snap = board.snapshot(3);
+  res = tree.tick(snap);
+  assert.equal(res.status, 'RUNNING');
+  assert.equal(res.requests[0]?.actionType, 'DetourWaypoint');
+  assert.equal(res.requests[0]?.params.targetX, 10);
+  const detourRunId = res.requests[0]!.runId;
+
+  // Simulate DetourWaypoint succeeds (channel opened / arrived at detour)
+  board.setRuntime({
+    ...snap.runtime,
+    results: {
+      ...snap.runtime.results,
+      [detourRunId]: { status: 'SUCCESS' },
+    },
+  });
+
+  // Tick 5: Detour succeeded -> resumes NormalFollow again!
+  snap = board.snapshot(4);
+  res = tree.tick(snap);
+  assert.equal(res.status, 'RUNNING');
+  assert.equal(res.requests[0]?.actionType, 'NormalFollow');
+  const followRunId3 = res.requests[0]!.runId;
+  assert.notEqual(followRunId3, followRunId2);
 });
 
 test('findDetourWaypoint generates ~6 block perpendicular candidates, evaluates vertical offsets, and skips attempted points', () => {

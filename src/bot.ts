@@ -61,13 +61,13 @@ export function attachCompanion(
       sample();
       runner.requestUrgentTick();
     },
-    onNavigationFailed: (reason, missionId) => {
-      logger?.warn(`[navigation] navigation failed for mission "${missionId}": ${reason}`);
-      runner.enqueue({ type: 'intent', mode: 'STAY' });
-      chat.enqueue(reason);
-      runner.requestUrgentTick();
-    },
   });
+  const handleNavigationFailed = (reason: string, missionId: string) => {
+    logger?.warn(`[navigation] navigation failed for mission "${missionId}": ${reason}`);
+    runner.enqueue({ type: 'intent', mode: 'STAY' });
+    chat.enqueue(reason);
+    runner.requestUrgentTick();
+  };
   const inventory = createInventoryAdapters(bot as any, logger);
   const combat = createCombatAdapter(bot as any, logger, {
     isThreat: (targetId) => {
@@ -106,7 +106,7 @@ export function attachCompanion(
     ...inventoryAdapters,
     ...options.adapters,
   }, logger);
-  const tree = createCompanionTree(executor.availableActions());
+  const tree = createCompanionTree(executor.availableActions(), { onNavigationFailed: handleNavigationFailed, logger });
   const runner = createRunner({ board, executor, tree, ...(options.now ? { now: options.now } : {}),
     collectRequests: chat.requests,
     onStatus(snapshot) {
