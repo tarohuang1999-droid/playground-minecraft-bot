@@ -44,18 +44,19 @@ export function findDetourWaypoint(
   const sides: Array<'left' | 'right'> =
     taskState.preferredSide === 'right' ? ['right', 'left'] : ['left', 'right'];
 
-  const dist = 6.0;
+  const candidateDistances = [6.0, 4.0, 8.0, 10.0];
 
   for (const side of sides) {
     const vec = side === 'left' ? { x: nz, z: -nx } : { x: -nz, z: nx };
-    const candX = Math.round(currentPos.x + vec.x * dist);
-    const candZ = Math.round(currentPos.z + vec.z * dist);
+    for (const dist of candidateDistances) {
+      const candX = Math.round(currentPos.x + vec.x * dist);
+      const candZ = Math.round(currentPos.z + vec.z * dist);
 
-    // Skip if already attempted (within 1.5 blocks)
-    const already = taskState.attemptedWaypoints.some(
-      wp => Math.hypot(wp.x - candX, wp.z - candZ) <= 1.5
-    );
-    if (already) continue;
+      // Skip if already attempted (within 1.5 blocks)
+      const already = taskState.attemptedWaypoints.some(
+        wp => Math.hypot(wp.x - candX, wp.z - candZ) <= 1.5
+      );
+      if (already) continue;
 
     // Check vertical offsets [0, 1, -1, 2, -2]
     const verticalOffsets = [0, 1, -1, 2, -2];
@@ -81,6 +82,7 @@ export function findDetourWaypoint(
       };
     }
   }
+}
 
   logger?.info('[recovery] no safe detour waypoint found on left or right');
   return null;

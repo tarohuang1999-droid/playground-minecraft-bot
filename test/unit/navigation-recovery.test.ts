@@ -211,19 +211,19 @@ test('unstickCorner executes two-phase corner disengage (back+side then forward+
   const adapter = nav.unstickCorner(req);
   adapter.start(ctx);
 
-  // Phase 1 (0-200ms): disengage engages back and lateral (left)
+  // Phase 1 (0-1000ms): disengage engages back and lateral (left)
   assert.equal(bot.controlStates.left, true);
   assert.equal(bot.controlStates.back, true);
 
-  // Phase 2 (200-450ms): clearance releases back, engages forward + lateral
-  currentTime += 200;
+  // Phase 2 (1000-2500ms): clearance releases back, engages forward + lateral
+  currentTime += 1000;
   adapter.update!(ctx);
   assert.equal(bot.controlStates.back, false);
   assert.equal(bot.controlStates.forward, true);
   assert.equal(bot.controlStates.left, true);
 
-  // Completion at 450ms: clears controls and returns SUCCESS
-  currentTime += 250;
+  // Completion at 2500ms: clears controls and returns SUCCESS
+  currentTime += 1500;
   const outcome = adapter.update!(ctx);
   assert.equal(outcome?.status, 'SUCCESS');
   assert.equal(bot.controlStates.forward, false);
@@ -486,10 +486,10 @@ test('detourWaypoint arrival returns SUCCESS and timeout returns FAILURE', () =>
   assert.equal(arrOutcome?.status, 'SUCCESS');
   adapter.cancel!();
 
-  // Subcase B: Timeout after 5s
+  // Subcase B: Timeout after 10s
   const timeoutAdapter = nav.detourWaypoint(req);
   timeoutAdapter.start(ctx);
-  currentTime += 5500;
+  currentTime += 10500;
   const timeoutOutcome = timeoutAdapter.update!(ctx);
   assert.equal(timeoutOutcome?.status, 'FAILURE');
   assert.match(timeoutOutcome?.reason ?? '', /timed out/);

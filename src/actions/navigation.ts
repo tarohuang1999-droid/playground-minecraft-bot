@@ -1182,11 +1182,16 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
   }
 
   function unstickCornerAdapter(): AdapterFactory {
-    return (_request: ActionRequest): ActionAdapter => {
+    return (request: ActionRequest): ActionAdapter => {
       let startTime = 0;
       let phase: 'disengage' | 'clearance' = 'disengage';
       let chosenSide: 'left' | 'right' | null = null;
       let isDone = false;
+      let isJumping = false;
+
+      const disengageMs = typeof request.params.disengageMs === 'number' ? request.params.disengageMs : 1000;
+      const clearanceMs = typeof request.params.clearanceMs === 'number' ? request.params.clearanceMs : 1500;
+      const totalDurationMs = Math.min(5000, disengageMs + clearanceMs);
 
       return {
         start(ctx: ActionContext): void | ActionResult {
@@ -1194,6 +1199,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           startTime = getTime();
           phase = 'disengage';
           isDone = false;
+          isJumping = false;
 
           const left = checkLateralSafety(bot, 'left');
           const right = checkLateralSafety(bot, 'right');
@@ -1229,7 +1235,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           bot.setControlState?.(chosenSide, true);
 
-          logger?.info(`[recovery] UnstickCorner started: side=${chosenSide}, back=${canBack}`);
+          logger?.info(`[recovery] UnstickCorner started: side=${chosenSide}, back=${canBack}, totalDuration=${totalDurationMs}ms`);
         },
 
         update(ctx: ActionContext): void | ActionResult {
@@ -1240,16 +1246,27 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           const now = getTime();
           const elapsed = now - startTime;
 
-          if (phase === 'disengage' && elapsed >= 200) {
+          if (phase === 'disengage' && elapsed >= disengageMs) {
             phase = 'clearance';
             bot.setControlState?.('back', false);
             bot.setControlState?.('forward', true);
             bot.setControlState?.(chosenSide, true);
           }
 
-          if (elapsed >= 450) {
+          if (phase === 'clearance') {
+            if (shouldJumpObstacle(bot)) {
+              bot.setControlState?.('jump', true);
+              isJumping = true;
+            } else if (isJumping && (!bot.entity?.onGround || !bot.entity?.isCollidedHorizontally)) {
+              bot.setControlState?.('jump', false);
+              isJumping = false;
+            }
+          }
+
+          if (elapsed >= totalDurationMs) {
             bot.setControlState?.('back', false);
             bot.setControlState?.('forward', false);
+            bot.setControlState?.('jump', false);
             bot.setControlState?.(chosenSide, false);
             isDone = true;
             logger?.info('[recovery] UnstickCorner completed successfully');
@@ -1263,6 +1280,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
           bot.setControlState?.('back', false);
           bot.setControlState?.('forward', false);
+          bot.setControlState?.('jump', false);
           bot.setControlState?.('left', false);
           bot.setControlState?.('right', false);
           isDone = true;
@@ -1340,9 +1358,9 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           if (!ctx.isActive()) return;
           const now = getTime();
 
-          // 1. Timeout (5s)
-          if (now - startTime > 5000) {
-            logger?.warn('[recovery] DetourWaypoint timed out (> 5s)');
+          // 1. Timeout (10s)
+          if (now - startTime > 10000) {
+            logger?.warn('[recovery] DetourWaypoint timed out (> 10s)');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'FAILURE', reason: 'DetourWaypoint timed out' };
@@ -1392,7 +1410,7 @@ export function createNavigation(bot: NavigationBot, logger?: NavigationLogger, 
           }
 
           const isMoving = bot.pathfinder?.isMoving ? bot.pathfinder.isMoving() : true;
-          if (now - lastProgressTime > 1500 && !isMoving) {
+          if (now - lastProgressTime > 2500 && !isMoving) {
             logger?.warn('[recovery] DetourWaypoint stalled');
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
