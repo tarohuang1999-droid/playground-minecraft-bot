@@ -12,7 +12,9 @@ const { GoalNear } = goals;
 
 export interface FarmingOptions {
   logger?: NavigationLogger | undefined;
-  onCropPlanted?: ((cropType: string) => void) | undefined;
+  onCropPlanted?:
+    ((cropType: string, pos?: { x: number; y: number; z: number }) => void) | undefined;
+  onFarmlandFailed?: ((pos: { x: number; y: number; z: number }) => void) | undefined;
 }
 
 export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) {
@@ -46,7 +48,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
           });
           bot.setControlState?.('jump', false);
 
-          const goal = new GoalNear(targetPos.x, targetPos.y + 1, targetPos.z, 2.0);
+          const goal = new GoalNear(targetPos.x + 0.5, targetPos.y + 1, targetPos.z + 0.5, 2.0);
           bot.pathfinder?.setGoal(goal, false);
           logger?.info(
             `[farming] FarmPlant started towards (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) with ${seedItem}`
@@ -62,6 +64,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
             logger?.warn(`[farming] FarmPlant timed out (> 15s)`);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
+            options.onFarmlandFailed?.(targetPos);
             return { status: 'FAILURE', reason: 'Plant approach timed out' };
           }
 
@@ -70,28 +73,44 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
           const selfPos = bot.entity?.position;
           if (!selfPos) return { status: 'FAILURE', reason: 'Bot position missing' };
 
-          const dist = Math.hypot(selfPos.x - targetPos.x, selfPos.z - targetPos.z);
+          const dist = Math.hypot(selfPos.x - (targetPos.x + 0.5), selfPos.z - (targetPos.z + 0.5));
           const dy = Math.abs(selfPos.y - targetPos.y);
 
-          if (dist <= 2.5 && dy <= 2.0) {
+          // Check if bot is colliding with crop volume [targetPos.x .. +1, targetPos.y + 1 .. +2, targetPos.z .. +1]
+          const isColliding =
+            selfPos.y < targetPos.y + 2.0 &&
+            selfPos.y + 1.8 > targetPos.y + 1.0 &&
+            selfPos.x + 0.35 > targetPos.x &&
+            selfPos.x - 0.35 < targetPos.x + 1.0 &&
+            selfPos.z + 0.35 > targetPos.z &&
+            selfPos.z - 0.35 < targetPos.z + 1.0;
+
+          if (isColliding) {
+            // Bot is standing inside the crop volume, back up slightly to safe distance
+            const angle = Math.atan2(
+              selfPos.z - (targetPos.z + 0.5),
+              selfPos.x - (targetPos.x + 0.5)
+            );
+            const backX = targetPos.x + 0.5 + Math.cos(angle || 0) * 1.6;
+            const backZ = targetPos.z + 0.5 + Math.sin(angle || 0) * 1.6;
+            bot.pathfinder?.setGoal(new GoalNear(backX, targetPos.y + 1, backZ, 0.4), false);
+            return;
+          }
+
+          if (dist <= 3.2 && dy <= 2.0) {
             inFlight = true;
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
 
             (async () => {
               try {
-                if (typeof (bot as any).lookAt === 'function') {
-                  await (bot as any).lookAt(
-                    new Vec3(targetPos.x + 0.5, targetPos.y + 0.5, targetPos.z + 0.5)
-                  );
-                }
-
-                if (!ctx.isActive()) return;
+                if (!active || !ctx.isActive()) return;
 
                 const inv = (bot as any).inventory;
                 const items = typeof inv?.items === 'function' ? inv.items() : [];
                 const item = items.find((i: any) => i?.name === seedItem);
                 if (!item) {
+                  options.onFarmlandFailed?.(targetPos);
                   finishedResult = {
                     status: 'FAILURE',
                     reason: `Seed ${seedItem} not in inventory`,
@@ -103,7 +122,15 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                   await (bot as any).equip(item, 'hand');
                 }
 
-                if (!ctx.isActive()) return;
+                if (!active || !ctx.isActive()) return;
+
+                if (typeof (bot as any).lookAt === 'function') {
+                  await (bot as any).lookAt(
+                    new Vec3(targetPos.x + 0.5, targetPos.y + 0.5, targetPos.z + 0.5)
+                  );
+                }
+
+                if (!active || !ctx.isActive()) return;
 
                 const farmlandBlock =
                   typeof (bot as any).blockAt === 'function'
@@ -114,21 +141,32 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                       };
 
                 if (!farmlandBlock || farmlandBlock.name !== 'farmland') {
+                  options.onFarmlandFailed?.(targetPos);
                   finishedResult = { status: 'FAILURE', reason: 'Target is not farmland' };
                   return;
                 }
 
-                if (typeof (bot as any).placeBlock === 'function') {
+                if (typeof (bot as any).activateBlock === 'function') {
+                  await (bot as any).activateBlock(farmlandBlock);
+                } else if (typeof (bot as any).placeBlock === 'function') {
                   await (bot as any).placeBlock(farmlandBlock, new Vec3(0, 1, 0));
                 }
 
-                options.onCropPlanted?.(cropType);
+                if (typeof (bot as any).swingArm === 'function') {
+                  (bot as any).swingArm('right');
+                }
+
+                if (!active || !ctx.isActive()) return;
+
+                options.onCropPlanted?.(cropType, targetPos);
                 logger?.info(
                   `[farming] Successfully planted ${seedItem} on (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`
                 );
                 finishedResult = { status: 'SUCCESS' };
               } catch (err) {
-                logger?.warn(`[farming] placeBlock error: ${err}`);
+                if (!active || !ctx.isActive()) return;
+                logger?.warn(`[farming] planting error: ${err}`);
+                options.onFarmlandFailed?.(targetPos);
                 finishedResult = { status: 'FAILURE', reason: String(err) };
               } finally {
                 inFlight = false;
@@ -145,7 +183,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
         },
 
         isStopped(): boolean {
-          return !active && !inFlight;
+          return !active;
         },
       };
     },

@@ -220,6 +220,7 @@ export function createPerception(
   let currentSpawnPoint: Position | null = initialSaved.spawnPoint;
   let bedNeedsRefresh = false;
   let bedCooldownUntil = 0;
+  const farmlandCooldowns = new Map<string, number>();
 
   const persist = () => {
     if (options.storagePath) {
@@ -517,8 +518,26 @@ export function createPerception(
       return world;
     },
 
+    markFarmlandCooldown(pos: Position, durationMs = 30_000) {
+      const key = `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`;
+      farmlandCooldowns.set(key, getNow() + durationMs);
+    },
+
+    clearFarmlandCooldowns() {
+      farmlandCooldowns.clear();
+    },
+
     getAvailableFarmland(rallyPoint: Position, maxRadius: number = 25): Position | null {
-      return findAvailableFarmland(bot, rallyPoint, maxRadius);
+      const now = getNow();
+      for (const [key, exp] of farmlandCooldowns.entries()) {
+        if (now >= exp) farmlandCooldowns.delete(key);
+      }
+      const isCooldown = (x: number, y: number, z: number) => {
+        const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+        const exp = farmlandCooldowns.get(key);
+        return exp !== undefined && now < exp;
+      };
+      return findAvailableFarmland(bot, rallyPoint, maxRadius, isCooldown);
     },
   };
 }
@@ -526,7 +545,8 @@ export function createPerception(
 export function findAvailableFarmland(
   bot: PerceptionSource,
   rallyPoint: Position,
-  maxRadius: number = 25
+  maxRadius: number = 25,
+  isCooldown?: (x: number, y: number, z: number) => boolean
 ): Position | null {
   const b = bot as any;
   if (typeof b.findBlock === 'function') {
@@ -534,6 +554,12 @@ export function findAvailableFarmland(
     const isFarmlandCandidateValid = (candidate: any): boolean => {
       if (!candidate || candidate.name !== 'farmland') return false;
       if (!candidate.position) return false;
+      if (
+        isCooldown &&
+        isCooldown(candidate.position.x, candidate.position.y, candidate.position.z)
+      ) {
+        return false;
+      }
       if (typeof b.blockAt === 'function') {
         const abovePos = candidate.position.offset
           ? candidate.position.offset(0, 1, 0)
@@ -562,6 +588,7 @@ export function findAvailableFarmland(
   } else if (b.blocks) {
     for (const block of Object.values(b.blocks as Record<string, any>)) {
       if (!block || block.name !== 'farmland' || !block.position) continue;
+      if (isCooldown && isCooldown(block.position.x, block.position.y, block.position.z)) continue;
       const dx = block.position.x - rallyPoint.x;
       const dz = block.position.z - rallyPoint.z;
       if (Math.hypot(dx, dz) > maxRadius) continue;

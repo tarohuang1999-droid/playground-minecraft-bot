@@ -403,3 +403,195 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
   assert.equal(placeCalls[0]?.vec.y, 1);
   assert.equal(cropPlantedCallback, 'wheat');
 });
+
+test('farming adapter: farmPlant prefers activateBlock when available and swings arm', async () => {
+  const activateBlockCalls: any[] = [];
+  const swingArmCalls: any[] = [];
+  let plantedPos: any = null;
+
+  const fakeBot: any = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    pathfinder: { setGoal() {}, setMovements() {} },
+    inventory: {
+      items: () => [{ name: 'wheat_seeds', type: 100 }],
+    },
+    async lookAt() {},
+    async equip() {},
+    blockAt(pos: any) {
+      return { position: pos, name: 'farmland' };
+    },
+    async activateBlock(block: any) {
+      activateBlockCalls.push(block);
+    },
+    swingArm(hand: string) {
+      swingArmCalls.push(hand);
+    },
+  };
+
+  const farming = createFarming(fakeBot, {
+    onCropPlanted: (_crop, pos) => {
+      plantedPos = pos;
+    },
+  });
+
+  const request: ActionRequest = {
+    nodeId: 'FarmPlant',
+    runId: 'farm-run-activate',
+    actionType: 'FarmPlant',
+    targetId: null,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { x: 2, y: 64, z: 0, seedItem: 'wheat_seeds', cropType: 'wheat' },
+  };
+
+  const board = createBlackboard('owner');
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = farming.farmPlant(request);
+  adapter.start(ctx);
+  adapter.update!(ctx);
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(activateBlockCalls.length, 1, 'activateBlock should be called');
+  assert.equal(activateBlockCalls[0]?.name, 'farmland');
+  assert.equal(swingArmCalls.length, 1, 'swingArm should be called');
+  assert.equal(plantedPos?.x, 2);
+});
+
+test('farming adapter: cancel immediately stops FarmPlant and isStopped returns true', () => {
+  const fakeBot: any = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    pathfinder: { setGoal() {}, setMovements() {} },
+    setControlState() {},
+  };
+
+  const farming = createFarming(fakeBot);
+  const request: ActionRequest = {
+    nodeId: 'FarmPlant',
+    runId: 'farm-cancel-test',
+    actionType: 'FarmPlant',
+    targetId: null,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { x: 5, y: 64, z: 5, seedItem: 'wheat_seeds', cropType: 'wheat' },
+  };
+
+  const board = createBlackboard('owner');
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = farming.farmPlant(request);
+  adapter.start(ctx);
+  assert.equal(adapter.isStopped?.(), false, 'Should be active after start');
+
+  adapter.cancel();
+  assert.equal(
+    adapter.isStopped?.(),
+    true,
+    'isStopped() must immediately return true after cancel'
+  );
+});
+
+test('farming perception: failure cooldown prevents targeting failed farmland repeatedly', () => {
+  const rallyPoint: Position = { x: 100, y: 64, z: 100 };
+  const fakeBot: any = {
+    blocks: {
+      failedFarmland: {
+        name: 'farmland',
+        position: { x: 105, y: 64, z: 100 },
+        above: { name: 'air' },
+      },
+      nextFarmland: {
+        name: 'farmland',
+        position: { x: 110, y: 64, z: 100 },
+        above: { name: 'air' },
+      },
+    },
+  };
+
+  let mockNow = 10_000;
+  const perception = createPerception(fakeBot, 'owner', { now: () => mockNow });
+
+  // Initially picks first farmland
+  const first = perception.getAvailableFarmland(rallyPoint, 25);
+  assert.equal(first?.x, 105);
+
+  // Mark first farmland as failed (30s cooldown)
+  perception.markFarmlandCooldown({ x: 105, y: 64, z: 100 }, 30_000);
+
+  // Now getAvailableFarmland should skip the failed one and find nextFarmland!
+  const second = perception.getAvailableFarmland(rallyPoint, 25);
+  assert.ok(second);
+  assert.equal(second?.x, 110, 'Should skip failed farmland and target next farmland');
+
+  // After cooldown expires, first farmland becomes available again
+  mockNow += 31_000;
+  const third = perception.getAvailableFarmland(rallyPoint, 25);
+  assert.equal(third?.x, 105, 'Expired cooldown allows farmland to be reconsidered');
+});
+
+test('farming adapter: avoids planting when bot collides with crop space', async () => {
+  let activateCalls = 0;
+  let newGoal: any = null;
+
+  // Bot is standing at (10.1, 64.0, 10.1), directly inside crop block at (10, 64, 10)
+  const fakeBot: any = {
+    entity: { id: 1, position: { x: 10.1, y: 64.0, z: 10.1 } },
+    pathfinder: {
+      setGoal(goal: any) {
+        newGoal = goal;
+      },
+      setMovements() {},
+    },
+    inventory: {
+      items: () => [{ name: 'wheat_seeds', type: 100 }],
+    },
+    async activateBlock() {
+      activateCalls++;
+    },
+  };
+
+  const farming = createFarming(fakeBot);
+  const request: ActionRequest = {
+    nodeId: 'FarmPlant',
+    runId: 'farm-collide-test',
+    actionType: 'FarmPlant',
+    targetId: null,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { x: 10, y: 63, z: 10, seedItem: 'wheat_seeds', cropType: 'wheat' }, // Farmland y=63, crop y=64
+  };
+
+  const board = createBlackboard('owner');
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = farming.farmPlant(request);
+  adapter.start(ctx);
+  adapter.update!(ctx);
+
+  await new Promise(resolve => setTimeout(resolve, 10));
+
+  assert.equal(activateCalls, 0, 'Must NOT plant while colliding with crop space');
+  assert.ok(newGoal !== null, 'Should set backup goal to move outside crop space');
+});

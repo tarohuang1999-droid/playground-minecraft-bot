@@ -105,9 +105,18 @@ export function attachCompanion(
   let plantedCropsCount = 0;
   const farming = createFarming(bot as any, {
     logger,
-    onCropPlanted: cropType => {
+    onCropPlanted: (cropType, pos) => {
       plantedCropsCount++;
+      if (pos) {
+        perception.markFarmlandCooldown(pos, 30_000);
+      }
       logger?.info(`[farming] Planted ${cropType} (total: ${plantedCropsCount})`);
+    },
+    onFarmlandFailed: pos => {
+      perception.markFarmlandCooldown(pos, 30_000);
+      logger?.warn(
+        `[farming] Farmland at (${pos.x}, ${pos.y}, ${pos.z}) marked as failed (cooldown 30s)`
+      );
     },
   });
   const farmingAdapters = hasPathfinderOrPlugin
@@ -417,6 +426,7 @@ export function attachCompanion(
       }
 
       plantedCropsCount = 0;
+      perception.clearFarmlandCooldowns();
       const selfPos = currentWorld.self.position;
       const rallyPoint = { x: selfPos.x, y: selfPos.y, z: selfPos.z };
       logger?.info(
