@@ -218,38 +218,23 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !available.has('FarmPlant') || !isFarmingActive(s) }
   );
 
-  const shouldReturnToRally = (s: BlackboardSnapshot) => {
-    if (!canFarm(s)) return false;
-    if (isFarmingActive(s)) return false;
-    const workArea = s.intent.workArea!;
-    const dist = Math.hypot(
-      s.world.self.position.x - workArea.rallyPoint.x,
-      s.world.self.position.z - workArea.rallyPoint.z
-    );
-    if (dist <= 1.5) {
-      const elapsed = s.observedAt - workArea.startedAt;
-      options?.onFarmingFinished?.(elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED');
-      return false;
-    }
-    return true;
-  };
+  const isFarmingFinished = (s: BlackboardSnapshot) => canFarm(s) && !isFarmingActive(s);
 
-  const returnToRally = guard(
-    'ReturnToRally-ready',
-    s => available.has('ReturnToRally') && shouldReturnToRally(s),
-    action('ReturnToRally', s => {
+  const farmFinish = guard(
+    'FarmFinish-ready',
+    s => isFarmingFinished(s),
+    action('FarmFinish', s => {
       const workArea = s.intent.workArea!;
+      const elapsed = s.observedAt - workArea.startedAt;
+      const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
+      options?.onFarmingFinished?.(reason);
       return {
-        actionType: 'ReturnToRally',
+        actionType: 'Idle',
         targetId: null,
-        params: {
-          x: workArea.rallyPoint.x,
-          y: workArea.rallyPoint.y,
-          z: workArea.rallyPoint.z,
-        },
+        params: {},
       };
     }),
-    { exit: s => !available.has('ReturnToRally') || !shouldReturnToRally(s) }
+    { exit: () => true }
   );
 
   return reactiveSelector('work', [
@@ -258,7 +243,7 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     farmPlant,
     comeOnce,
     returnToBase,
-    returnToRally,
+    farmFinish,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
     setSpawn,
   ]);

@@ -103,26 +103,34 @@ export function attachCompanion(
       }
     : {};
   let plantedCropsCount = 0;
+  let consecutiveFailures = 0;
   const farming = createFarming(bot as any, {
     logger,
     onCropPlanted: (cropType, pos) => {
       plantedCropsCount++;
+      consecutiveFailures = 0;
       if (pos) {
         perception.markFarmlandCooldown(pos, 30_000);
       }
       logger?.info(`[farming] Planted ${cropType} (total: ${plantedCropsCount})`);
     },
     onFarmlandFailed: pos => {
+      consecutiveFailures++;
       perception.markFarmlandCooldown(pos, 30_000);
       logger?.warn(
-        `[farming] Farmland at (${pos.x}, ${pos.y}, ${pos.z}) marked as failed (cooldown 30s)`
+        `[farming] Farmland at (${pos.x}, ${pos.y}, ${pos.z}) marked as failed (consecutive: ${consecutiveFailures})`
       );
+      if (consecutiveFailures >= 5) {
+        logger?.error(`[farming] 5 consecutive planting attempts failed. Aborting farm mode.`);
+        chat.enqueue('Farming failed: 5 consecutive planting attempts failed.');
+        runner.enqueue({ type: 'intent', mode: 'IDLE' });
+        runner.requestUrgentTick();
+      }
     },
   });
   const farmingAdapters = hasPathfinderOrPlugin
     ? {
         FarmPlant: farming.farmPlant,
-        ReturnToRally: farming.returnToRally,
       }
     : {};
   const inventoryAdapters = {
@@ -150,7 +158,7 @@ export function attachCompanion(
       perception.getAvailableFarmland(rallyPoint, maxRadius),
     onFarmingFinished: reason => {
       logger?.info(`[farming] shift finished (${reason}), total planted: ${plantedCropsCount}`);
-      runner.enqueue({ type: 'intent', mode: 'STAY' });
+      runner.enqueue({ type: 'intent', mode: 'IDLE' });
       if (reason === 'TIMEOUT') {
         chat.enqueue(
           `Farming shift completed (1 day limit reached). Planted ${plantedCropsCount} crops.`
@@ -426,6 +434,7 @@ export function attachCompanion(
       }
 
       plantedCropsCount = 0;
+      consecutiveFailures = 0;
       perception.clearFarmlandCooldowns();
       const selfPos = currentWorld.self.position;
       const rallyPoint = { x: selfPos.x, y: selfPos.y, z: selfPos.z };

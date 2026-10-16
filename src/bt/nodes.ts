@@ -1,5 +1,10 @@
 import type { BlackboardSnapshot } from '../blackboard.ts';
-import { ACTION_POLICY, type ActionType, type ResourceChannel } from '../policy.ts';
+import {
+  ACTION_POLICY,
+  calculateActionPriority,
+  type ActionType,
+  type ResourceChannel,
+} from '../policy.ts';
 import type { ActionRequest, NodeStatus } from '../execution/types.ts';
 
 export interface TickResult {
@@ -76,7 +81,7 @@ export function action(
           actionType: spec.actionType,
           targetId: spec.targetId,
           params: spec.params,
-          priority: policy.priority,
+          priority: calculateActionPriority(spec.actionType, ctx.snapshot),
           requiredResources: spec.requiredResources ?? policy.requiredResources,
         },
       ]);

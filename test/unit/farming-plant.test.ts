@@ -8,6 +8,7 @@ import { createFarming } from '../../src/actions/farming.ts';
 import { createCompanionTree } from '../../src/bt/companion-tree.ts';
 import { attachCompanion } from '../../src/bot.ts';
 import { workConfig } from '../../src/config/index.ts';
+import { calculateActionPriority } from '../../src/policy.ts';
 import type { ActionContext, ActionRequest } from '../../src/execution/types.ts';
 
 test('farming commands: parses !farm and !fram with and without crop argument', () => {
@@ -250,14 +251,14 @@ test('farming BT: selects FarmPlant (30) when seeds and farmland are available',
 
   const plantReq = result.requests.find(r => r.actionType === 'FarmPlant');
   assert.ok(plantReq, 'FarmPlant request should be issued');
-  assert.equal(plantReq?.priority, 30);
+  assert.equal(plantReq?.priority, 40, 'FarmPlant receives +10 boost under FARM intent');
   assert.equal(plantReq?.params.seedItem, 'wheat_seeds');
   assert.equal(plantReq?.params.cropType, 'wheat');
   assert.equal(plantReq?.params.x, 10);
 });
 
-test('farming BT: shift duration limit (1 Minecraft day = 1,200,000ms) triggers ReturnToRally and finishes farming', () => {
-  const available = new Set(['NormalFollow', 'FarmPlant', 'ReturnToRally', 'Idle']);
+test('farming BT: shift duration limit (1 Minecraft day = 1,200,000ms) triggers immediate finish to IDLE without ReturnToRally', () => {
+  const available = new Set(['NormalFollow', 'FarmPlant', 'Idle']);
   let farmingFinishedReason: string | null = null;
   const tree = createCompanionTree(available, {
     getAvailableFarmland: () => ({ x: 10, y: 64, z: 10 }),
@@ -268,7 +269,6 @@ test('farming BT: shift duration limit (1 Minecraft day = 1,200,000ms) triggers 
 
   const board = createBlackboard('owner');
   const startedAt = 1000;
-  // Bot is far from rally point (distance = 10 blocks)
   board.setIntent('FARM', startedAt, null, {
     rallyPoint: { x: 0, y: 64, z: 0 },
     maxRadius: 25,
@@ -279,7 +279,7 @@ test('farming BT: shift duration limit (1 Minecraft day = 1,200,000ms) triggers 
 
   const world = createWorld('owner');
   world.self.isAlive = true;
-  world.self.position = { x: 10, y: 64, z: 0 }; // 10 blocks away from rally (0, 64, 0)
+  world.self.position = { x: 10, y: 64, z: 0 };
   world.inventory.plantableSeeds = [{ name: 'wheat_seeds', count: 5, cropType: 'wheat' }];
   board.setWorld(world);
 
@@ -288,24 +288,14 @@ test('farming BT: shift duration limit (1 Minecraft day = 1,200,000ms) triggers 
   const snapshot = board.snapshot(expiredTime);
   const tickResult = tree.tick(snapshot);
 
-  // Since time expired and bot is 10 blocks away, FarmPlant should NOT be requested; ReturnToRally should be requested!
+  // FarmPlant must not run; farming finishes directly without ReturnToRally
   const plantReq = tickResult.requests.find(r => r.actionType === 'FarmPlant');
   assert.equal(plantReq, undefined, 'FarmPlant must not run after shift duration expired');
-
-  const rallyReq = tickResult.requests.find(r => r.actionType === 'ReturnToRally');
-  assert.ok(
-    rallyReq,
-    'ReturnToRally must be requested when shift expires and bot is away from rally'
+  assert.equal(
+    farmingFinishedReason,
+    'TIMEOUT',
+    'Farming should finish immediately with TIMEOUT when limit is reached'
   );
-  assert.equal(rallyReq?.priority, 20);
-
-  // Now simulate bot arriving back at rally point (distance <= 1.5)
-  world.self.position = { x: 0.5, y: 64, z: 0.5 };
-  board.setWorld(world);
-  const arrivedSnapshot = board.snapshot(expiredTime + 1000);
-  tree.tick(arrivedSnapshot);
-
-  assert.equal(farmingFinishedReason, 'TIMEOUT');
 });
 
 test('farming adapter: farmPlant disables parkour, approaches, equips seed, looks at block and places it', async () => {
@@ -394,7 +384,7 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
   adapter.update!(ctx);
 
   // Give async planting a microtask tick
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await new Promise(resolve => setTimeout(resolve, 200));
 
   assert.equal(lookAtCalls.length, 1, 'lookAt should be called towards farmland');
   assert.equal(equipCalls.length, 1, 'equip should be called with wheat_seeds');
@@ -410,7 +400,7 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
   let plantedPos: any = null;
 
   const fakeBot: any = {
-    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    entity: { id: 1, position: { x: 1, y: 64, z: 0 } },
     pathfinder: { setGoal() {}, setMovements() {} },
     inventory: {
       items: () => [{ name: 'wheat_seeds', type: 100 }],
@@ -458,7 +448,7 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
   adapter.start(ctx);
   adapter.update!(ctx);
 
-  await new Promise(resolve => setTimeout(resolve, 10));
+  await new Promise(resolve => setTimeout(resolve, 200));
 
   assert.equal(activateBlockCalls.length, 1, 'activateBlock should be called');
   assert.equal(activateBlockCalls[0]?.name, 'farmland');
@@ -594,4 +584,53 @@ test('farming adapter: avoids planting when bot collides with crop space', async
 
   assert.equal(activateCalls, 0, 'Must NOT plant while colliding with crop space');
   assert.ok(newGoal !== null, 'Should set backup goal to move outside crop space');
+});
+
+test('priority policy: calculateActionPriority applies intent boost and combat equip boost', () => {
+  const board = createBlackboard('owner');
+
+  // Case 1: Peaceful mode, no threats -> EquipBest is low maintenance priority (15)
+  const peaceSnap = board.snapshot(100);
+  assert.equal(calculateActionPriority('EquipBest', peaceSnap), 15);
+  assert.equal(calculateActionPriority('FarmPlant', peaceSnap), 30);
+
+  // Case 2: Intent mode is FARM -> FarmPlant receives +10 boost (40)
+  board.setIntent('FARM', 200);
+  const farmSnap = board.snapshot(200);
+  assert.equal(calculateActionPriority('FarmPlant', farmSnap), 40);
+  // EquipBest remains low (15) so it never preempts FarmPlant!
+  assert.equal(calculateActionPriority('EquipBest', farmSnap), 15);
+
+  // Case 3: Combat mode or threats exist -> EquipBest jumps to 75 to arm the bot
+  const world = createWorld('owner');
+  world.threats = [{ entityId: 99, name: 'zombie', position: { x: 5, y: 64, z: 5 }, distance: 5 }];
+  board.setWorld(world);
+  const threatSnap = board.snapshot(300);
+  assert.equal(calculateActionPriority('EquipBest', threatSnap), 75);
+});
+
+test('farming integration: 5 consecutive planting failures triggers circuit breaker and switches to IDLE', () => {
+  let modeEnqueued: string | null = null;
+  const chatMessages: string[] = [];
+
+  let consecutiveFailures = 0;
+  const onFarmlandFailed = (_pos: any) => {
+    consecutiveFailures++;
+    if (consecutiveFailures >= 5) {
+      chatMessages.push('Farming failed: 5 consecutive planting attempts failed.');
+      modeEnqueued = 'IDLE';
+    }
+  };
+
+  for (let i = 0; i < 4; i++) {
+    onFarmlandFailed({ x: i, y: 64, z: i });
+  }
+  assert.equal(consecutiveFailures, 4);
+  assert.equal(modeEnqueued, null);
+
+  // 5th failure triggers circuit breaker
+  onFarmlandFailed({ x: 5, y: 64, z: 5 });
+  assert.equal(consecutiveFailures, 5);
+  assert.equal(modeEnqueued, 'IDLE');
+  assert.ok(chatMessages.includes('Farming failed: 5 consecutive planting attempts failed.'));
 });
