@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { createBot, type BotEvents } from 'mineflayer';
 import { pathfinder } from 'mineflayer-pathfinder';
 import { createBlackboard } from './blackboard.ts';
@@ -370,10 +371,20 @@ export function attachCompanion(
       return;
     }
 
-    logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);
-    runner.enqueue(event);
-    if (event.type === 'intent') chat.enqueue(`Intent=${event.mode}`);
-    runner.requestUrgentTick();
+    if (event.type === 'intent') {
+      logger?.info(`[chat] accepted command: intent (${event.mode})`);
+      runner.enqueue({ type: 'intent', mode: event.mode });
+      chat.enqueue(`Intent=${event.mode}`);
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'status') {
+      logger?.info('[chat] accepted command: status');
+      runner.enqueue({ type: 'status' });
+      runner.requestUrgentTick();
+      return;
+    }
   }
   bot.on('spawn', spawn);
   bot.on('respawn', respawn);
@@ -405,7 +416,31 @@ export function attachCompanion(
   };
 }
 
-export function startBot(env: NodeJS.ProcessEnv = process.env) {
+function loadEnvDefaults(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (fs.existsSync('.env')) {
+    try {
+      const content = fs.readFileSync('.env', 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim();
+          if (key && !env[key]) {
+            env[key] = val;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return env;
+}
+
+export function startBot(rawEnv: NodeJS.ProcessEnv = process.env) {
+  const env = loadEnvDefaults({ ...rawEnv });
   const owner = env.BOT_OWNER || '';
   // if (!owner || !/^[A-Za-z0-9_]{1,16}$/.test(owner)) throw new Error('Set BOT_OWNER to your Minecraft username (1–16 letters, digits or underscores)');
   const port = Number(env.BOT_PORT ?? '25565');
@@ -439,4 +474,6 @@ export function startBot(env: NodeJS.ProcessEnv = process.env) {
   return { bot, companion, logger };
 }
 
-if (require.main === module) startBot();
+if (typeof require !== 'undefined' && require.main === module) {
+  startBot();
+}

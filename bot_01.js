@@ -24,8 +24,10 @@ bot.once('spawn', () => {
 
 // 重置與停止當前所有行為
 function stopAll() {
-  bot.pathfinder.stop();
-  bot.pathfinder.setGoal(null);
+  if (bot.pathfinder) {
+    bot.pathfinder.stop();
+    bot.pathfinder.setGoal(null);
+  }
   currentTask = 'idle';
 }
 
