@@ -7,24 +7,26 @@
   - `docs/rules/rule-typescript-coding.md`（TypeScript 開發規範）
 - **核心開發原則**：
   1. **KISS & YAGNI 原則**：專注於指定指令與功能，避免不必要的過度抽象或深層狀態機；善用標準庫與 Mineflayer 現有能力。
-  2. **有界活動範圍約束**：所有範圍任務（`!hunt`、`!farm`、`!harvest`）以指令觸發時的座標為「暫時集合地（Temporary Rally Point）」，嚴格限制在直徑 50 格（即以集合地為中心半徑 25 格，橫向距離 $\le 25$ 格）之內，禁止無窮追逐離開工作區域。
-  3. **工時時限控制（Shift Limit）**：`!farm` 與 `!hunt` 必須具備工作時長上限，單次執行時間**不得超過遊戲中的一天（1 In-game Day = 24,000 ticks = 20 分鐘 = 1,200 秒）**；超時後自動返回集合地並切換回待命狀態。
-  4. **資源仲裁一致性**：所有獵殺、播種、收割與容器存取行為皆需透過 Arbiter 申請資源通道（通常為 `['MOVE', 'LOOK', 'HAND', 'INVENTORY']`），並服從 `Combat (80)`、`EmergencyEat (90)`、`Retreat (100)` 的高優先級生存搶佔。
-  5. **農地保護**：在耕地（Farmland）上作業與移動時，關閉跳躍（`allowParkour = false`，禁止 jump 動作），防止將耕地踩踏破壞為泥土方塊。
-  6. **集中式配置管理**：所有魔法數字、距離門檻、超時時間與白名單抽離至 `src/config/` 分類模組管理。
+  2. **靜態分析與自動格式化 (Clean Code Standards)**：導入科技大廠等級之 ESLint 與 Prettier 規範，確保全專案排版統一、語法乾淨並杜絕低階錯誤。
+  3. **有界活動範圍約束**：所有範圍任務（`!hunt`、`!farm`、`!harvest`）以指令觸發時的座標為「暫時集合地（Temporary Rally Point）」，嚴格限制在直徑 50 格（即以集合地為中心半徑 25 格，橫向距離 $\le 25$ 格）之內，禁止無窮追逐離開工作區域。
+  4. **工時時限控制（Shift Limit）**：`!farm` 與 `!hunt` 必須具備工作時長上限，單次執行時間**不得超過遊戲中的一天（1 In-game Day = 24,000 ticks = 20 分鐘 = 1,200 秒）**；超時後自動返回集合地並切換回待命狀態。
+  5. **資源仲裁一致性**：所有獵殺、播種、收割與容器存取行為皆需透過 Arbiter 申請資源通道（通常為 `['MOVE', 'LOOK', 'HAND', 'INVENTORY']`），並服從 `Combat (80)`、`EmergencyEat (90)`、`Retreat (100)` 的高優先級生存搶佔。
+  6. **農地保護**：在耕地（Farmland）上作業與移動時，關閉跳躍（`allowParkour = false`，禁止 jump 動作），防止將耕地踩踏破壞為泥土方塊。
+  7. **集中式配置管理**：所有魔法數字、距離門檻、超時時間與白名單抽離至 `src/config/` 分類模組管理。
 
 ---
 
 ## 階段目錄 (Stage 2 Breakdown)
 
 - **Stage 2.0: 配置參數模組化與集中管理 (`src/config/`)**
-- **Stage 2.1: 狀態清單增強與正則過濾 (`!state [regex]`)**
-- **Stage 2.2: 集合地錨定、工時限制與自主動物狩獵 (`!hunt`)**
-- **Stage 2.3: 多作物農事種植自動化與工時限制 (`!farm`)**
-- **Stage 2.4: 多作物熟成收割與自動補種 (`!harvest`)**
-- **Stage 2.5: 夜晚自主回 Spawn 睡覺與起床作息 (Nightly Autonomous Sleep)**
-- **Stage 2.6: 命名箱子管理、損毀自動移除與物品存取 (`!box`)**
-- **Stage 2.7: Stage 2 綜合整合與端到端驗收測試**
+- **Stage 2.1: 程式碼規範與靜態檢查工具建置 (ESLint & Prettier)**
+- **Stage 2.2: 狀態清單增強與正則過濾 (`!state [regex]`)**
+- **Stage 2.3: 集合地錨定、工時限制與自主動物狩獵 (`!hunt`)**
+- **Stage 2.4: 多作物農事種植自動化與工時限制 (`!farm`)**
+- **Stage 2.5: 多作物熟成收割與自動補種 (`!harvest`)**
+- **Stage 2.6: 夜晚自主回 Spawn 睡覺與起床作息 (Nightly Autonomous Sleep)**
+- **Stage 2.7: 命名箱子管理、損毀自動移除與物品存取 (`!box`)**
+- **Stage 2.8: Stage 2 綜合整合與端到端驗收測試**
 
 ---
 
@@ -57,7 +59,7 @@
   - 聊天冷卻：`chatIntervalMs: 1000`, `chatQueueLimit: 5`。
   - 視野半徑：`observationRadius: 32`。
   - 資料持久化：`storagePath: 'data/storage.json'`。
-- `src/config/index.ts`：統一匯出所有配置，讓其他模組能以 `import { workConfig, navConfig } from '../config'` 引數。
+- `src/config/index.ts`：統一匯出所有配置，讓其他模組能以 `import { workConfig, navConfig } from '../config'` 引用。
 
 ### 2.0.3 驗收門檻
 - [ ] 執行 `pnpm run typecheck` 與 `pnpm test` 100% 通過，全專案無壞掉的舊引用。
@@ -65,12 +67,50 @@
 
 ---
 
-## Stage 2.1: 狀態清單增強與正則過濾 (`!state [regex]`)
+## Stage 2.1: 程式碼規範與靜態檢查工具建置 (ESLint & Prettier)
 
 ### 2.1.1 階段目標
+參考科技大廠（如 Google / Airbnb / Prettier Recommended）之標準 JavaScript / TypeScript 規範，引入現代化靜態代碼檢查與自動排版工具鏈，統一程式碼風格並預先捕捉潛在缺陷。
+
+### 2.1.2 導入模組與職責劃分
+- **`eslint`**：JavaScript / TypeScript 靜態分析核心工具，捕捉型別盲點、未定義變數與反模式最佳實踐。
+- **`@typescript-eslint/parser` & `@typescript-eslint/eslint-plugin`**：解析 TypeScript AST 語法樹並啟用 TypeScript 專屬規則。
+- **`prettier`**：專業程式碼自動排版工具，專注於排版細節（縮排 2 格、單引號、分號、行寬等）。
+- **`eslint-config-prettier`**：關閉所有 ESLint 中與 Prettier 衝突的格式化規則。
+- **`eslint-plugin-prettier`**：將 Prettier 規則整合為 ESLint 檢查項，以利在單一檢查流程中報告排版問題。
+
+### 2.1.3 設定規範與設定檔
+- **規則標準**：
+  - 縮排：2 個空格（Indent: 2 spaces）。
+  - 引號：單引號（Single Quotes: true）。
+  - 分號：必定加分號（Semi: true）。
+  - 行寬上限：100 字元（Print Width: 100）。
+  - 尾隨逗號：ES5 模式（Trailing Comma: 'es5'）。
+  - 未使用變數警告：`@typescript-eslint/no-unused-vars`，允許以 `_` 開頭的參數忽略。
+- **交付檔案**：
+  - `.prettierrc.json`：Prettier 基礎排版設定。
+  - `.prettierignore`：排除 `dist/`, `node_modules/`, `data/`, `logs/` 等。
+  - `.eslintrc.cjs`（或相容設定）：整合 `@typescript-eslint` 與 `prettier` plugin/config。
+  - `.eslintignore`：排除構建產物與運行日誌。
+  - 更新 `package.json` 加入快捷腳本：
+    - `"lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\""`
+    - `"lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix"`
+    - `"format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\""`
+    - `"format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\""`
+
+### 2.1.4 驗收門檻
+- [ ] `pnpm run lint` 與 `pnpm run format:check` 正常運作無崩潰。
+- [ ] ESLint 與 Prettier 無互相衝突之排版報錯。
+- [ ] 執行 `pnpm run lint:fix` 能自動修復基本格式與排版問題。
+
+---
+
+## Stage 2.2: 狀態清單增強與正則過濾 (`!state [regex]`)
+
+### 2.2.1 階段目標
 擴充現有 `!state`（及 `!status`）指令，輸出 Bot 當前身上裝備清單、背包全部物品統計，並支援可選的正規表達式（regex filter）對資源名稱進行篩選查詢。
 
-### 2.1.2 規格與行為定義
+### 2.2.2 規格與行為定義
 - **指令語法**：
   - `!state`：輸出基礎狀態（HP、Food、Mode、Base/Spawn、Switches）＋ 當前裝備欄（主手、副手、頭盔、胸甲、護腿、靴子）＋ 身上所有物品及數量統計。
   - `!state <pattern>`：依正規表達式 `<pattern>`（不分大小寫）過濾物品名稱（name 與 displayName），僅列出符合該 pattern 的物品統計；若無任何符合項目則回覆 `No items matching "<pattern>"`。
@@ -92,24 +132,24 @@
   - iron_ingot x8 (inventory)
   ```
 
-### 2.1.3 交付與修改檔案
+### 2.2.3 交付與修改檔案
 - `src/perception.ts`：擴充 `inventory` 感知資料結構，提供各裝備槽位（`equipment`）詳細資訊與完整背包物品聚合陣列（`itemCounts: Map<string, number>`）。
 - `src/commands.ts`：更新 `!state` 指令解析邏輯，支援可選參數 `args[0]` 作為 regex，格式化輸出裝備與物品資訊。
 - `test/unit/commands-state-filter.test.ts`：單元測試驗證無參數輸出、有效 regex 過濾、無匹配結果處理以及異常 regex 容錯（如無效正則不崩潰）。
 
-### 2.1.4 驗收門檻
+### 2.2.4 驗收門檻
 - [ ] `!state` 正確顯示主手、副手與四個防具槽位名稱。
 - [ ] 支援 regex 過濾，如 `!state seed|wheat` 正確過濾出 `wheat` 與 `wheat_seeds`。
 - [ ] 無效 regex（如 `!state [unclosed`）能優雅捕捉並回報語法錯誤，不拋出未捕獲例外。
 
 ---
 
-## Stage 2.2: 集合地錨定、工時限制與自主動物狩獵 (`!hunt`)
+## Stage 2.3: 集合地錨定、工時限制與自主動物狩獵 (`!hunt`)
 
-### 2.2.1 階段目標
+### 2.3.1 階段目標
 實作自主狩獵行為：當收到 `!hunt` 指令時，Bot 以當前座標為暫時集合地（Rally Point），在直徑 50 格（半徑 25 格）範圍內搜尋目標動物（預設支援：雞 `chicken`、豬 `pig`、牛 `cow`、羊 `sheep`），接近並擊殺動物，自動拾取掉落物；單次任務限制**不超過遊戲中一天（20 分鐘）**，範圍內無動物或工時結束時自動返回集合地。
 
-### 2.2.2 規格與行為定義
+### 2.3.2 規格與行為定義
 - **指令語法**：
   - `!hunt`：啟動預設白名單狩獵。
   - `!hunt <target>`：限定特定動物（如 `!hunt cow` 或 `!hunt pig`）。
@@ -133,7 +173,7 @@
   4. 收集物資：目標死亡後產生肉品或掉落物，觸發 `PickupItem`（優先級 30）拾取。
   5. 歸隊 / 等候：若範圍內已無目標動物或工時結束，導航回 `rallyPoint`，切換回 `STAY`。
 
-### 2.2.3 系統分層設計
+### 2.3.3 系統分層設計
 - **Blackboard Schema 擴充**：
   - `intent.mode`: 新增 `'HUNT'`。
   - `intent.workArea`: `{ rallyPoint: { x: number; y: number; z: number }; maxRadius: number; startedAt: number; maxDurationMs: number }`。
@@ -143,7 +183,7 @@
 - **安全防護**：
   - 遭遇怪物攻擊時，`Combat (80)` 立即搶佔；重傷時 `Retreat (100)` 與 `EmergencyEat (90)` 優先觸發。
 
-### 2.2.4 驗收門檻
+### 2.3.4 驗收門檻
 - [ ] 執行 `!hunt` 時正確錨定當前座標為集合點，只鎖定半徑 25 格內的動物。
 - [ ] 獵殺過程自動換上最佳武器，擊殺後成功拾取掉落物。
 - [ ] 動物逃逸出 25 格範圍時主動放棄，不追出限定區域。
@@ -151,12 +191,12 @@
 
 ---
 
-## Stage 2.3: 多作物農事種植自動化與工時限制 (`!farm`)
+## Stage 2.4: 多作物農事種植自動化與工時限制 (`!farm`)
 
-### 2.3.1 階段目標
+### 2.4.1 階段目標
 實作支援多種農作物（預設優先實作小麥）的農事耕作架構：檢查背包中可播種的種子或農產品，在以集合點為中心、直徑 50 格範圍內尋找空置耕地（`farmland`），靠近並在農地上種植；工時上限同樣**不超過遊戲中一天（20 分鐘）**。
 
-### 2.3.2 規格與行為定義
+### 2.4.2 規格與行為定義
 - **作物架構註冊表（Crop Registry）**：
   - 支援各種作物的播種項目與方塊對應表（預設第一優先實作小麥）：
     - 小麥：種植物品 `wheat_seeds` $\to$ 作物方塊 `wheat`，熟成條件 `age === 7`。
@@ -180,14 +220,14 @@
   - 背包種子用盡、無空置耕地、或達到 1 遊戲日（20 分鐘）時限。
   - 完成後返回集合點，通知主人 `Farming completed. Planted N crops.`，切換回 `STAY`。
 
-### 2.3.3 交付與修改檔案
+### 2.4.3 交付與修改檔案
 - `src/config/work.config.ts`：定義作物註冊表與農事設定。
 - `src/perception.ts`：擴充農地與作物感知，提供 `getAvailableFarmland(rallyPoint, radius)`。
 - `src/actions/farming.ts`：實作 `PlantSeedAction` 適配器，封裝手持種子、防跳躍移動與放置作物。
 - `src/bt/subtrees/work.ts`：掛載 `FarmPlant` 決策節點（優先級 30）。
 - `test/unit/farming-plant.test.ts`：單元測試驗證多作物註冊、種子檢查、農地識別、防踐踏開關、工時逾時與播種流程。
 
-### 2.3.4 驗收門檻
+### 2.4.4 驗收門檻
 - [ ] 無種子時下達 `!farm` 能即時警示並退出，不產生無謂走動。
 - [ ] 支援多種植物註冊架構，預設優先成功種植小麥 `wheat_seeds`。
 - [ ] 播種移動過程中不觸發跳躍，不破壞耕地方塊。
@@ -195,12 +235,12 @@
 
 ---
 
-## Stage 2.4: 多作物熟成收割與自動補種 (`!harvest`)
+## Stage 2.5: 多作物熟成收割與自動補種 (`!harvest`)
 
-### 2.4.1 階段目標
+### 2.5.1 階段目標
 實作多種農作物的成熟辨識、安全收割、掉落物回收與原地即時補種（Harvest & Replant），同樣受直徑 50 格集合點範圍與 1 遊戲日工時限制。
 
-### 2.4.2 規格與行為定義
+### 2.5.2 規格與行為定義
 - **指令語法**：
   - `!harvest`（或 `!reap`）：自動收割範圍內所有已成熟的作物（預設小麥）。
   - `!harvest <crop>`：指定特定成熟作物收割（例如 `!harvest wheat`）。
@@ -219,12 +259,12 @@
      - 達到循環耕作，無需額外手動下達 `!farm`。
   5. **批次作業至完成**：遍歷範圍內所有成熟作物，全數收割補種或達到 20 分鐘工時後，返回 `rallyPoint`，回報收割成果，模式回落為 `STAY`。
 
-### 2.4.3 交付與修改檔案
+### 2.5.3 交付與修改檔案
 - `src/actions/farming.ts`：擴充 `HarvestCropAction`，包含各作物成熟度檢測、安全挖掘與連續補種邏輯。
 - `src/bt/subtrees/work.ts`：掛載 `HarvestCrop` 決策節點（優先級 32）。
 - `test/unit/farming-harvest.test.ts`：單元測試驗證各作物成熟判定（如 wheat age 7、beetroots age 3）、跳過未熟作物、採收與補種流程。
 
-### 2.4.4 驗收門檻
+### 2.5.4 驗收門檻
 - [ ] 僅收割成熟作物（小麥/胡蘿蔔/馬鈴薯 age 7，甜菜根 age 3），跳過未成熟作物。
 - [ ] 收割後自動拾取掉落的農產品與種子。
 - [ ] 若背包有種子，收割後能原地自動補種。
@@ -232,12 +272,12 @@
 
 ---
 
-## Stage 2.5: 夜晚自主回 Spawn 睡覺與起床作息 (Nightly Autonomous Sleep)
+## Stage 2.6: 夜晚自主回 Spawn 睡覺與起床作息 (Nightly Autonomous Sleep)
 
-### 2.5.1 階段目標
+### 2.6.1 階段目標
 當 Bot 處於 `IDLE` 狀態時，於遊戲夜晚（或雷雨天）自動前往已綁定的 Spawn 點床鋪進行睡覺，天亮時自然醒來起床並恢復 `IDLE` 狀態。
 
-### 2.5.2 規格與行為定義
+### 2.6.2 規格與行為定義
 - **觸發條件**：
   - 當前意圖模式為 `IDLE`（或 `STAY` 且無其他進行中任務）。
   - 已設定有效的 Spawn 點或床鋪座標（`world.self.spawn` 或感知床鋪 `bedPosition`）。
@@ -253,25 +293,25 @@
   - **遇襲醒來**：若在睡眠中受到傷害（`tookDamageRecently`），立即呼叫 `bot.wake()`，交由 `Combat (80)` 或 `Retreat (100)` 搶佔自衛。
   - **天亮醒來**：天亮時（收到 `wake` 事件或 `bot.time.isDay === true`），自動離開床鋪，在聊天室通知 `Good morning!`，狀態自然回歸 `IDLE`。
 
-### 2.5.3 交付與修改檔案
+### 2.6.3 交付與修改檔案
 - `src/config/survival.config.ts`：定義入睡與甦醒時間門檻。
 - `src/actions/sleep.ts`：實作 `SleepAtBedAction` 適配器。
 - `src/bt/subtrees/maintenance.ts`：掛載 `SleepAtBed` 決策分支。
 - `test/unit/sleep-cycle.test.ts`：單元測試驗證夜間判斷、床鋪接近、就寢、遇襲甦醒與晨起重置流程。
 
-### 2.5.4 驗收門檻
+### 2.6.4 驗收門檻
 - [ ] 白天時不觸發睡覺；夜間降臨且 IDLE 時自動走回床鋪睡覺。
 - [ ] 睡覺中遭遇攻擊能立即醒來切換戰鬥。
 - [ ] 天亮時自然甦醒，不卡死在睡眠狀態。
 
 ---
 
-## Stage 2.6: 命名箱子管理、損毀自動移除與物品存取 (`!box`)
+## Stage 2.7: 命名箱子管理、損毀自動移除與物品存取 (`!box`)
 
-### 2.6.1 階段目標
+### 2.7.1 階段目標
 實作專屬箱子管理系統：透過指令註冊並賦予箱子自訂 ID（如 `box_01`, `food_box`）；感知層監聽箱子方塊，若箱子被破壞則自動從註冊表中註銷並通知主人；支援存入（deposit）與取出（withdraw）指令。
 
-### 2.6.2 規格與行為定義
+### 2.7.2 規格與行為定義
 - **指令語法**：
   - `!box register <boxId> [x y z]`：
     - 若無指定座標，預設選取 Bot 視線所指之方塊（`blockAtCursor`）或半徑 4 格內最近之容器（`chest`, `trapped_chest`, `barrel`）。
@@ -295,14 +335,14 @@
   3. 根據要求遍歷容器並調用 `container.deposit()` 或 `container.withdraw()`。
   4. 操作完畢呼叫 `container.close()`，向主人回報存取明細。
 
-### 2.6.3 交付與修改檔案
+### 2.7.3 交付與修改檔案
 - `src/state-storage.ts`：擴充持久化資料結構，支援 `boxes: Record<string, { x: number; y: number; z: number; type: string }>`。
 - `src/perception.ts`：增加箱子狀態感知與方塊破壞監聽。
 - `src/actions/container.ts`：實作 `DepositAction` 與 `WithdrawAction` 適配器。
 - `src/commands.ts`：實作 `!box` 系列指令解析與回報。
 - `test/unit/box-management.test.ts`：單元測試驗證箱子註冊、方塊破壞自動註銷、存入、取出與持久化儲存。
 
-### 2.6.4 驗收門檻
+### 2.7.4 驗收門檻
 - [ ] 支援 `!box register` 註冊自訂 ID，且資料正確寫入 `data/storage.json`。
 - [ ] 當箱子方塊被破壞時，自動偵測並從註冊表移除，發出警示。
 - [ ] `!box deposit` 正確將指定或非保留物品存入箱中；`!box withdraw` 正確取出指定數量物品。
@@ -310,12 +350,12 @@
 
 ---
 
-## Stage 2.7: Stage 2 綜合整合與端到端驗收測試
+## Stage 2.8: Stage 2 綜合整合與端到端驗收測試
 
-### 2.7.1 階段目標
+### 2.8.1 階段目標
 驗證狀態查詢、自主狩獵、農事種植、成熟收割、夜間睡眠作息、箱子管理與存取在真實伺服器或模擬 Harness 環境下的交互穩定度、邊界約束與搶佔安全性。
 
-### 2.7.2 必測綜合情境矩陣 (Stage 2 Verification Matrix)
+### 2.8.2 必測綜合情境矩陣 (Stage 2 Verification Matrix)
 
 | 測試編號 | 測試場景描述 | 預期行為與驗收指標 |
 | :--- | :--- | :--- |
