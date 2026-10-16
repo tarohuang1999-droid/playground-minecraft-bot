@@ -530,21 +530,29 @@ export function findAvailableFarmland(
 ): Position | null {
   const b = bot as any;
   if (typeof b.findBlock === 'function') {
-    const point = new Vec3(rallyPoint.x, rallyPoint.y, rallyPoint.z);
+    const point = new Vec3(rallyPoint.x, rallyPoint.y, rallyPoint.z).floored();
+    const isFarmlandCandidateValid = (candidate: any): boolean => {
+      if (!candidate || candidate.name !== 'farmland') return false;
+      if (!candidate.position) return false;
+      if (typeof b.blockAt === 'function') {
+        const abovePos = candidate.position.offset
+          ? candidate.position.offset(0, 1, 0)
+          : new Vec3(candidate.position.x, candidate.position.y + 1, candidate.position.z);
+        const above = b.blockAt(abovePos);
+        if (!above || (above.name !== 'air' && above.name !== 'cave_air')) return false;
+      }
+      const dx = candidate.position.x - rallyPoint.x;
+      const dz = candidate.position.z - rallyPoint.z;
+      return Math.hypot(dx, dz) <= maxRadius;
+    };
+
     const block = b.findBlock({
       matching: (candidate: any) => {
         if (!candidate || candidate.name !== 'farmland') return false;
-        if (typeof b.blockAt === 'function') {
-          const abovePos = candidate.position.offset
-            ? candidate.position.offset(0, 1, 0)
-            : new Vec3(candidate.position.x, candidate.position.y + 1, candidate.position.z);
-          const above = b.blockAt(abovePos);
-          if (!above || (above.name !== 'air' && above.name !== 'cave_air')) return false;
-        }
-        const dx = candidate.position.x - rallyPoint.x;
-        const dz = candidate.position.z - rallyPoint.z;
-        return Math.hypot(dx, dz) <= maxRadius;
+        if (!candidate.position) return true; // Palette test in Mineflayer (candidate.position is null)
+        return isFarmlandCandidateValid(candidate);
       },
+      useExtraInfo: (candidate: any) => isFarmlandCandidateValid(candidate),
       maxDistance: 32,
       point,
     });

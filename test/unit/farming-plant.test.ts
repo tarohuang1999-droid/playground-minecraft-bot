@@ -97,6 +97,53 @@ test('farming perception: findAvailableFarmland identifies valid farmland within
   assert.equal(notFound, null);
 });
 
+test('farming perception: findAvailableFarmland safely handles palette candidate with null position', () => {
+  const rallyPoint: Position = { x: 39.5, y: -54.0, z: 17.9 };
+  let passedPaletteCheck = false;
+  let useExtraInfoCalled = false;
+  const fakeBot: any = {
+    findBlock: (options: any) => {
+      // 1. Mineflayer palette test: passes Block object with position = null
+      const paletteBlock = { name: 'farmland', position: null };
+      const paletteResult = options.matching(paletteBlock);
+      passedPaletteCheck = paletteResult;
+
+      // 2. Section search: passes Block with real position
+      const realBlock = {
+        name: 'farmland',
+        position: {
+          x: 40,
+          y: -54,
+          z: 18,
+          offset: (dx: number, dy: number, dz: number) => ({
+            x: 40 + dx,
+            y: -54 + dy,
+            z: 18 + dz,
+          }),
+        },
+      };
+      if (typeof options.useExtraInfo === 'function') {
+        useExtraInfoCalled = options.useExtraInfo(realBlock);
+      }
+      return realBlock;
+    },
+    blockAt: () => ({ name: 'air' }),
+  };
+
+  const perception = createPerception(fakeBot, 'owner');
+  const found = perception.getAvailableFarmland(rallyPoint, 25);
+  assert.equal(passedPaletteCheck, true, 'Palette pre-check should pass for farmland');
+  assert.equal(
+    useExtraInfoCalled,
+    true,
+    'useExtraInfo should validate candidate with valid position'
+  );
+  assert.ok(found);
+  assert.equal(found?.x, 40);
+  assert.equal(found?.y, -54);
+  assert.equal(found?.z, 18);
+});
+
 test('farming integration: !farm without seeds rejects with chat message and stays in original mode', () => {
   class MockBot extends EventEmitter {
     entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
