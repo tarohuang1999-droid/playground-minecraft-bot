@@ -7,6 +7,7 @@ export type CommandEvent =
   | { type: 'come' }
   | { type: 'set_dig'; enabled: boolean }
   | { type: 'set_bridge'; enabled: boolean }
+  | { type: 'item'; target: 'equipment' | 'inventory' }
   | { type: 'command_usage'; message: string }
   | { type: 'unknown'; raw: string };
 
@@ -48,6 +49,15 @@ export function parseCommand(
       if (arg === 'off') return { type: 'set_bridge', enabled: false };
     }
     return { type: 'command_usage', message: 'Usage: !bridge on|off' };
+  }
+
+  if (cmd === 'item') {
+    if (tokens.length === 2) {
+      const arg = tokens[1];
+      if (arg === 'equipment' || arg === 'equip') return { type: 'item', target: 'equipment' };
+      if (arg === 'inventory' || arg === 'inv') return { type: 'item', target: 'inventory' };
+    }
+    return { type: 'command_usage', message: 'Usage: !item equipment | !item inventory' };
   }
 
   return { type: 'unknown', raw: clean };

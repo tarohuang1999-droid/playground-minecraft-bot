@@ -20,7 +20,7 @@
 
 - **Stage 2.0: 配置參數模組化與集中管理 (`src/config/`)**
 - **Stage 2.1: 程式碼規範與靜態檢查工具建置 (ESLint & Prettier)**
-- **Stage 2.2: 狀態清單增強與正則過濾 (`!state [regex]`)**
+- **Stage 2.2: 裝備與背包物品查詢指令 (`!item equipment` / `!item inventory`)**
 - **Stage 2.3: 集合地錨定、工時限制與自主動物狩獵 (`!hunt`)**
 - **Stage 2.4: 多作物農事種植自動化與工時限制 (`!farm`)**
 - **Stage 2.5: 多作物熟成收割與自動補種 (`!harvest`)**
@@ -62,8 +62,8 @@
 - `src/config/index.ts`：統一匯出所有配置，讓其他模組能以 `import { workConfig, navConfig } from '../config'` 引用。
 
 ### 2.0.3 驗收門檻
-- [ ] 執行 `pnpm run typecheck` 與 `pnpm test` 100% 通過，全專案無壞掉的舊引用。
-- [ ] 所有魔法數字皆可在 `src/config/` 統一維護調整。
+- [x] 執行 `pnpm run typecheck` 與 `pnpm test` 100% 通過，全專案無壞掉的舊引用。
+- [x] 所有魔法數字皆可在 `src/config/` 統一維護調整。
 
 ---
 
@@ -90,57 +90,60 @@
 - **交付檔案**：
   - `.prettierrc.json`：Prettier 基礎排版設定。
   - `.prettierignore`：排除 `dist/`, `node_modules/`, `data/`, `logs/` 等。
-  - `.eslintrc.cjs`（或相容設定）：整合 `@typescript-eslint` 與 `prettier` plugin/config。
-  - `.eslintignore`：排除構建產物與運行日誌。
+  - `eslint.config.mjs`：整合 `@typescript-eslint` 與 `prettier` plugin/config 之 Flat Config。
   - 更新 `package.json` 加入快捷腳本：
-    - `"lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\""`
-    - `"lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix"`
-    - `"format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\""`
-    - `"format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\""`
+    - `"lint": "\"$npm_node_execpath\" node_modules/eslint/bin/eslint.js \"src/**/*.ts\" \"test/**/*.ts\""`
+    - `"lint:fix": "\"$npm_node_execpath\" node_modules/eslint/bin/eslint.js \"src/**/*.ts\" \"test/**/*.ts\" --fix"`
+    - `"format": "\"$npm_node_execpath\" node_modules/prettier/bin/prettier.cjs --write \"src/**/*.ts\" \"test/**/*.ts\""`
+    - `"format:check": "\"$npm_node_execpath\" node_modules/prettier/bin/prettier.cjs --check \"src/**/*.ts\" \"test/**/*.ts\""`
 
 ### 2.1.4 驗收門檻
-- [ ] `pnpm run lint` 與 `pnpm run format:check` 正常運作無崩潰。
-- [ ] ESLint 與 Prettier 無互相衝突之排版報錯。
-- [ ] 執行 `pnpm run lint:fix` 能自動修復基本格式與排版問題。
+- [x] `pnpm run lint` 與 `pnpm run format:check` 正常運作無崩潰（0 errors, 0 warnings）。
+- [x] ESLint 與 Prettier 無互相衝突之排版報錯。
+- [x] 執行 `pnpm run format` 自動排版全庫檔案。
 
 ---
 
-## Stage 2.2: 狀態清單增強與正則過濾 (`!state [regex]`)
+## Stage 2.2: 裝備與背包物品查詢指令 (`!item equipment` / `!item inventory`)
 
 ### 2.2.1 階段目標
-擴充現有 `!state`（及 `!status`）指令，輸出 Bot 當前身上裝備清單、背包全部物品統計，並支援可選的正規表達式（regex filter）對資源名稱進行篩選查詢。
+秉持 KISS 與 Pragmatic 設計原則，不修改既有 `!state` / `!status` 基礎狀態輸出，亦不導入複雜的正則過濾；新增獨立的 `!item` 指令，支援專注且清晰的兩種查詢模式：裝備清單（`equipment`）與背包物品統計（`inventory`）。
 
 ### 2.2.2 規格與行為定義
 - **指令語法**：
-  - `!state`：輸出基礎狀態（HP、Food、Mode、Base/Spawn、Switches）＋ 當前裝備欄（主手、副手、頭盔、胸甲、護腿、靴子）＋ 身上所有物品及數量統計。
-  - `!state <pattern>`：依正規表達式 `<pattern>`（不分大小寫）過濾物品名稱（name 與 displayName），僅列出符合該 pattern 的物品統計；若無任何符合項目則回覆 `No items matching "<pattern>"`。
-- **輸出格式範例**：
-  ```text
-  [Equipment] Head: iron_helmet | Chest: iron_chestplate | Legs: none | Feet: leather_boots | MainHand: iron_sword | OffHand: shield
-  [Inventory] (12 items / 24 slots free)
-  - wheat_seeds x32
-  - bread x16
-  - iron_ingot x8
-  - dirt x64
-  ```
-  當輸入 `!state iron.*` 時：
-  ```text
-  [Matched: iron.*]
-  - Head: iron_helmet (equipped)
-  - Chest: iron_chestplate (equipped)
-  - MainHand: iron_sword (equipped)
-  - iron_ingot x8 (inventory)
-  ```
+  - `!item equipment`（或簡稱 `!item equip`，大小寫不敏感）：
+    - 輸出 Bot 目前已穿戴的全部裝備與持握武器資訊。
+    - 涵蓋部位：Head (頭盔), Chest (胸甲), Legs (護腿), Feet (靴子), Hand (主手), OffHand (副手)。
+    - 若該欄位未穿戴則顯示 `none`。
+    - 輸出格式範例：
+      ```text
+      [Equipment] Head: iron_helmet | Chest: iron_chestplate | Legs: none | Feet: leather_boots | Hand: iron_sword | OffHand: none
+      ```
+  - `!item inventory`（或簡稱 `!item inv`，大小寫不敏感）：
+    - 輸出 Bot 身上背包物品名稱、聚合數量統計與剩餘空位數（不含防具與副手槽）。
+    - 輸出格式範例：
+      ```text
+      [Inventory] (24 slots free) wheat_seeds x32, bread x16, iron_ingot x8, dirt x64
+      ```
+    - 若背包全空：
+      ```text
+      [Inventory] (36 slots free) Empty
+      ```
+  - 未知子指令或參數錯誤（如 `!item` 或 `!item foo`）：
+    - 輸出用法提示：`Usage: !item equipment | !item inventory`
+- **權限與安全性**：
+  - 僅主人（configured owner）有權查詢，非主人發送靜默忽略。
 
 ### 2.2.3 交付與修改檔案
-- `src/perception.ts`：擴充 `inventory` 感知資料結構，提供各裝備槽位（`equipment`）詳細資訊與完整背包物品聚合陣列（`itemCounts: Map<string, number>`）。
-- `src/commands.ts`：更新 `!state` 指令解析邏輯，支援可選參數 `args[0]` 作為 regex，格式化輸出裝備與物品資訊。
-- `test/unit/commands-state-filter.test.ts`：單元測試驗證無參數輸出、有效 regex 過濾、無匹配結果處理以及異常 regex 容錯（如無效正則不崩潰）。
+- `src/commands.ts`：在 `parseCommand` 擴充 `!item` 解析，回傳 `{ type: 'item', target: 'equipment' | 'inventory' }` 或 `command_usage`。
+- `src/bot.ts`：在聊天事件處理中接入 `event.type === 'item'`，自 `bot.inventory` 即時格式化並透過 `chat.enqueue` 回傳。
+- `test/unit/commands.test.ts`：單元測試驗證 `!item equipment`、`!item inventory`、大小寫不敏感、無效參數 usage 提示與權限驗證。
 
 ### 2.2.4 驗收門檻
-- [ ] `!state` 正確顯示主手、副手與四個防具槽位名稱。
-- [ ] 支援 regex 過濾，如 `!state seed|wheat` 正確過濾出 `wheat` 與 `wheat_seeds`。
-- [ ] 無效 regex（如 `!state [unclosed`）能優雅捕捉並回報語法錯誤，不拋出未捕獲例外。
+- [ ] `!item equipment` 正確輸出六大部位裝備名稱（空位為 none）。
+- [ ] `!item inventory` 正確彙整輸出背包物品與數量，並顯示剩餘空槽位數。
+- [ ] 無效參數時輸出 `Usage: !item equipment | !item inventory`。
+- [ ] 不破壞既有 `!state` / `!status` 指令功能。
 
 ---
 

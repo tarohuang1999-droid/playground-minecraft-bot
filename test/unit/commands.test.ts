@@ -91,7 +91,47 @@ test('commands parser: ignores plain text and non-owner, parses ! commands', () 
   assert.strictEqual(parseCommand('dakaz', 'stranger', '!dig on'), null);
   assert.strictEqual(parseCommand('dakaz', 'stranger', '!bridge on'), null);
 
-  // 9. Unknown '!' command returns unknown type with raw name
+  // 9. !item command (equipment and inventory)
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item equipment'), {
+    type: 'item',
+    target: 'equipment',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item equip'), {
+    type: 'item',
+    target: 'equipment',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !ITEM  EQUIPMENT  '), {
+    type: 'item',
+    target: 'equipment',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item inventory'), {
+    type: 'item',
+    target: 'inventory',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item inv'), {
+    type: 'item',
+    target: 'inventory',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '  !ITEM  INV  '), {
+    type: 'item',
+    target: 'inventory',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item'), {
+    type: 'command_usage',
+    message: 'Usage: !item equipment | !item inventory',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item foo'), {
+    type: 'command_usage',
+    message: 'Usage: !item equipment | !item inventory',
+  });
+  assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!item equipment extra'), {
+    type: 'command_usage',
+    message: 'Usage: !item equipment | !item inventory',
+  });
+  assert.strictEqual(parseCommand('dakaz', 'stranger', '!item equipment'), null);
+  assert.strictEqual(parseCommand('dakaz', 'stranger', '!item inventory'), null);
+
+  // 10. Unknown '!' command returns unknown type with raw name
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!foo'), { type: 'unknown', raw: 'foo' });
   assert.deepStrictEqual(parseCommand('dakaz', 'dakaz', '!dance_now'), {
     type: 'unknown',
@@ -519,6 +559,106 @@ test('commands integration: !dig and !bridge toggle switches independently, outp
   bot.emit('death');
   assert.strictEqual(companion.snapshot().intent.canDig, false);
   assert.strictEqual(companion.snapshot().intent.allowBridge, false);
+
+  companion.dispose();
+});
+
+test('commands integration: !item equipment and !item inventory report gear and aggregated items', () => {
+  let simulatedTime = 1000;
+  class TestBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {};
+    entities: Record<string, any> = {};
+    heldItem: any = { name: 'iron_sword' };
+    quickBarSlot = 0;
+    inventory: any = {
+      slots: [
+        null, // 0
+        null, // 1
+        null, // 2
+        null, // 3
+        null, // 4
+        { name: 'iron_helmet' }, // 5 head
+        { name: 'iron_chestplate' }, // 6 chest
+        null, // 7 legs
+        { name: 'leather_boots' }, // 8 feet
+      ],
+      emptySlotCount: () => 24,
+      items: () => [
+        { name: 'wheat_seeds', count: 32 },
+        { name: 'bread', count: 16 },
+        { name: 'wheat_seeds', count: 10 },
+      ],
+    };
+    sent: string[] = [];
+    chat(message: string) {
+      this.sent.push(message);
+    }
+  }
+
+  const bot = new TestBot();
+  const companion = attachCompanion(bot as any, 'dakaz', { now: () => simulatedTime });
+  bot.emit('spawn');
+
+  function tick() {
+    bot.emit('physicsTick');
+    bot.emit('physicsTick');
+  }
+
+  // 1. !item equipment (and alias !item equip)
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!item equipment');
+  tick();
+  assert.deepStrictEqual(bot.sent, [
+    '[Equipment] Head: iron_helmet | Chest: iron_chestplate | Legs: none | Feet: leather_boots | Hand: iron_sword | OffHand: none',
+  ]);
+
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!item equip');
+  tick();
+  assert.deepStrictEqual(bot.sent, [
+    '[Equipment] Head: iron_helmet | Chest: iron_chestplate | Legs: none | Feet: leather_boots | Hand: iron_sword | OffHand: none',
+  ]);
+
+  // 2. !item inventory (aggregates counts, shows free slots)
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!item inventory');
+  tick();
+  assert.deepStrictEqual(bot.sent, ['[Inventory] (24 slots free) wheat_seeds x42, bread x16']);
+
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!item inv');
+  tick();
+  assert.deepStrictEqual(bot.sent, ['[Inventory] (24 slots free) wheat_seeds x42, bread x16']);
+
+  // 3. Empty inventory output
+  bot.inventory.items = () => [];
+  bot.inventory.emptySlotCount = () => 36;
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!item inventory');
+  tick();
+  assert.deepStrictEqual(bot.sent, ['[Inventory] (36 slots free) Empty']);
+
+  // 4. Invalid subcommand returns usage error
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'dakaz', '!item something');
+  tick();
+  assert.deepStrictEqual(bot.sent, ['Usage: !item equipment | !item inventory']);
+
+  // 5. Non-owner cannot query items
+  simulatedTime += 1000;
+  bot.sent = [];
+  bot.emit('chat', 'stranger', '!item equipment');
+  tick();
+  assert.deepStrictEqual(bot.sent, []);
 
   companion.dispose();
 });

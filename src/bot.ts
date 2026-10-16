@@ -332,6 +332,44 @@ export function attachCompanion(
       return;
     }
 
+    if (event.type === 'item') {
+      if (event.target === 'equipment') {
+        const slots = (bot as any).inventory?.slots ?? [];
+        const head = slots[5]?.name ?? 'none';
+        const chest = slots[6]?.name ?? 'none';
+        const legs = slots[7]?.name ?? 'none';
+        const feet = slots[8]?.name ?? 'none';
+        const hand =
+          (bot as any).heldItem?.name ??
+          slots[((bot as any).quickBarSlot ?? 0) + 36]?.name ??
+          'none';
+        const offhand = slots[45]?.name ?? 'none';
+        const msg = `[Equipment] Head: ${head} | Chest: ${chest} | Legs: ${legs} | Feet: ${feet} | Hand: ${hand} | OffHand: ${offhand}`;
+        logger?.info(`[item] ${msg}`);
+        chat.enqueue(msg);
+      } else {
+        const items =
+          typeof (bot as any).inventory?.items === 'function' ? (bot as any).inventory.items() : [];
+        const counts = new Map<string, number>();
+        for (const item of items) {
+          if (!item?.name) continue;
+          counts.set(item.name, (counts.get(item.name) ?? 0) + (item.count ?? 1));
+        }
+        const freeSlots =
+          typeof (bot as any).inventory?.emptySlotCount === 'function'
+            ? (bot as any).inventory.emptySlotCount()
+            : 0;
+        const itemsStr = Array.from(counts.entries())
+          .map(([n, c]) => `${n} x${c}`)
+          .join(', ');
+        const msg = `[Inventory] (${freeSlots} slots free) ${itemsStr || 'Empty'}`;
+        logger?.info(`[item] ${msg}`);
+        chat.enqueue(msg);
+      }
+      runner.requestUrgentTick();
+      return;
+    }
+
     logger?.info(`[chat] accepted command: ${event.type} (${(event as any).mode ?? 'status'})`);
     runner.enqueue(event);
     if (event.type === 'intent') chat.enqueue(`Intent=${event.mode}`);
