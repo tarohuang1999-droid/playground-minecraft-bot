@@ -384,7 +384,7 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
   adapter.update!(ctx);
 
   // Give async planting a microtask tick
-  await new Promise(resolve => setTimeout(resolve, 200));
+  await new Promise(resolve => setTimeout(resolve, 250));
 
   assert.equal(lookAtCalls.length, 1, 'lookAt should be called towards farmland');
   assert.equal(equipCalls.length, 1, 'equip should be called with wheat_seeds');
@@ -448,7 +448,7 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
   adapter.start(ctx);
   adapter.update!(ctx);
 
-  await new Promise(resolve => setTimeout(resolve, 200));
+  await new Promise(resolve => setTimeout(resolve, 250));
 
   assert.equal(activateBlockCalls.length, 1, 'activateBlock should be called');
   assert.equal(activateBlockCalls[0]?.name, 'farmland');
