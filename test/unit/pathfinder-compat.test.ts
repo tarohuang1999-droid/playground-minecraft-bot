@@ -187,16 +187,19 @@ test('NavigationExecutionBoundary: enforces whitelist, authorization, and max 3 
   boundary.uninstall(fakeBot);
 });
 
-test('NavigationExecutionBoundary: pending delayed callbacks after cancellation/session reset are rejected', async () => {
+test('NavigationExecutionBoundary: rejects inactive navigation context and passes through when null (RULE-11)', async () => {
   const boundary = new NavigationExecutionBoundary();
   let serverDigs = 0;
+  let serverPlaces = 0;
 
   const fakeBot: any = {
     dig: async (_b: any) => {
       serverDigs++;
     },
-    placeBlock: async (_ref: any, _face: any) => {},
-    heldItem: { name: 'dirt' },
+    placeBlock: async (_ref: any, _face: any) => {
+      serverPlaces++;
+    },
+    heldItem: { name: 'wheat_seeds' },
   };
 
   boundary.install(fakeBot);
@@ -215,14 +218,18 @@ test('NavigationExecutionBoundary: pending delayed callbacks after cancellation/
 
   boundary.setActiveContext(runCtx);
 
-  // Simulate delayed callback after cancellation
-  active = false; // run cancelled
-  boundary.setActiveContext(null);
-
+  // 1. Simulate delayed callback when run context is no longer active
+  active = false;
   await assert.rejects(() => fakeBot.dig({ name: 'dirt' }), /navigation run is not active/);
   assert.equal(serverDigs, 0);
 
   await assert.rejects(() => fakeBot.placeBlock({}, {}), /navigation run is not active/);
+  assert.equal(serverPlaces, 0);
+
+  // 2. When activeContext is null (non-navigation action like FarmPlant), pass through to original methods
+  boundary.setActiveContext(null);
+  await fakeBot.placeBlock({}, {});
+  assert.equal(serverPlaces, 1);
 
   boundary.uninstall(fakeBot);
 });

@@ -12,6 +12,7 @@ const { GoalNear } = goals;
 
 export interface FarmingOptions {
   logger?: NavigationLogger | undefined;
+  now?: (() => number) | undefined;
   onCropPlanted?:
     ((cropType: string, pos?: { x: number; y: number; z: number }) => void) | undefined;
   onFarmlandFailed?: ((pos: { x: number; y: number; z: number }) => void) | undefined;
@@ -19,6 +20,7 @@ export interface FarmingOptions {
 
 export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) {
   const logger = options.logger;
+  const getNow = () => (options.now ? options.now() : Date.now());
 
   return {
     farmPlant(request: ActionRequest): ActionAdapter {
@@ -47,7 +49,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
           inFlight = false;
           phase = 'APPROACH';
           finishedResult = null;
-          startTime = Date.now();
+          startTime = getNow();
 
           setupMovements(bot, logger, {
             canDig: false,
@@ -72,7 +74,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
           if (!active || !ctx.isActive()) return;
           if (finishedResult) return finishedResult;
 
-          const now = Date.now();
+          const now = getNow();
           if (now - startTime > 15_000) {
             logger?.warn(`[farming] FarmPlant timed out (> 15s)`);
             bot.pathfinder?.setGoal(null);
@@ -213,6 +215,8 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     }
                   }
 
+                  if (!active || !ctx.isActive()) return;
+
                   if (
                     (!placeError && methodUsed === 'none') ||
                     (placeError && typeof (bot as any).activateBlock === 'function')
@@ -224,16 +228,20 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                           `[farming] Executing ${methodUsed} on farmland (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`
                         );
                         await (bot as any).activateBlock(farmlandBlock, new Vec3(0, 1, 0));
+                        if (!active || !ctx.isActive()) return;
                         if (typeof (bot as any).swingArm === 'function') {
                           (bot as any).swingArm('right');
                         }
                       } catch (actErr: any) {
+                        if (!active || !ctx.isActive()) return;
                         logger?.warn(
                           `[farming] activateBlock error on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): ${actErr?.message ?? actErr}`
                         );
                       }
                     }
                   }
+
+                  if (!active || !ctx.isActive()) return;
 
                   // 5. Verification delay to allow server block update to propagate
                   await new Promise(r => setTimeout(r, 100));
@@ -298,7 +306,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
         },
 
         isStopped(): boolean {
-          return !active;
+          return !active && !inFlight;
         },
       };
     },

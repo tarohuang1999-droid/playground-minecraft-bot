@@ -33,21 +33,37 @@ export interface NavigationRunContext {
   isActive(): boolean;
 }
 
+export interface GuardableBot {
+  dig?: ((block: { name?: string }, force?: boolean) => Promise<unknown>) | undefined;
+  placeBlock?: ((referenceBlock: unknown, faceVector: unknown) => Promise<unknown>) | undefined;
+  heldItem?: { name: string } | null | undefined;
+}
+
 export class NavigationExecutionBoundary {
   private activeContext: NavigationRunContext | null = null;
   private inFlightDigs = 0;
   private inFlightPlaces = 0;
-  private originalDig: any = null;
-  private originalPlaceBlock: any = null;
+  private installed = false;
+  private originalDig: ((block: { name?: string }, force?: boolean) => Promise<unknown>) | null =
+    null;
+  private originalPlaceBlock:
+    ((referenceBlock: unknown, faceVector: unknown) => Promise<unknown>) | null = null;
 
-  install(bot: any) {
-    if (!bot || this.originalDig) return;
-    this.originalDig = bot.dig;
-    this.originalPlaceBlock = bot.placeBlock;
+  install(bot: GuardableBot) {
+    if (!bot || this.installed) return;
+    this.installed = true;
+    this.originalDig = bot.dig ?? null;
+    this.originalPlaceBlock = bot.placeBlock ?? null;
 
-    bot.dig = async (block: any, force?: boolean) => {
+    bot.dig = async (block: { name?: string }, force?: boolean) => {
       const ctx = this.activeContext;
-      if (!ctx || !ctx.isActive()) {
+      if (!ctx) {
+        if (typeof this.originalDig === 'function') {
+          return await this.originalDig.call(bot, block, force);
+        }
+        return;
+      }
+      if (!ctx.isActive()) {
         throw new Error('Dig rejected: navigation run is not active');
       }
       if (!ctx.canDig || !ctx.taskState.canDig) {
@@ -73,9 +89,15 @@ export class NavigationExecutionBoundary {
       }
     };
 
-    bot.placeBlock = async (referenceBlock: any, faceVector: any) => {
+    bot.placeBlock = async (referenceBlock: unknown, faceVector: unknown) => {
       const ctx = this.activeContext;
-      if (!ctx || !ctx.isActive()) {
+      if (!ctx) {
+        if (typeof this.originalPlaceBlock === 'function') {
+          return await this.originalPlaceBlock.call(bot, referenceBlock, faceVector);
+        }
+        return;
+      }
+      if (!ctx.isActive()) {
         throw new Error('Place rejected: navigation run is not active');
       }
       if (!ctx.allowBridge || !ctx.taskState.allowBridge) {
@@ -123,15 +145,23 @@ export class NavigationExecutionBoundary {
     return this.inFlightDigs > 0 || this.inFlightPlaces > 0;
   }
 
-  uninstall(bot: any) {
-    if (this.originalDig && bot) {
-      bot.dig = this.originalDig;
-      this.originalDig = null;
+  uninstall(bot: GuardableBot) {
+    if (!this.installed) return;
+    if (bot) {
+      if (this.originalDig) {
+        bot.dig = this.originalDig;
+      } else {
+        delete bot.dig;
+      }
+      if (this.originalPlaceBlock) {
+        bot.placeBlock = this.originalPlaceBlock;
+      } else {
+        delete bot.placeBlock;
+      }
     }
-    if (this.originalPlaceBlock && bot) {
-      bot.placeBlock = this.originalPlaceBlock;
-      this.originalPlaceBlock = null;
-    }
+    this.installed = false;
+    this.originalDig = null;
+    this.originalPlaceBlock = null;
     this.activeContext = null;
     this.inFlightDigs = 0;
     this.inFlightPlaces = 0;

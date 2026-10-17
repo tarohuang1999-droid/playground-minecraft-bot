@@ -281,8 +281,8 @@ export function createPerception(
     },
 
     recordAttacker(
-      entity: { id: number; username?: string; name?: string },
-      config: { durationMs: number; maxHits?: number; isOwner: boolean }
+      entity: { id: number; username?: string | undefined; name?: string | undefined },
+      config: { durationMs: number; maxHits?: number | undefined; isOwner: boolean }
     ) {
       const now = getNow();
       dynamicThreats.set(entity.id, {

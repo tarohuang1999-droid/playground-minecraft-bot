@@ -31,7 +31,7 @@ export function createRunner(options: {
   onStatus?: (snapshot: BlackboardSnapshot) => void;
 }) {
   const { board, executor, tree } = options;
-  const now = options.now ?? (() => performance.now());
+  const now = options.now ?? (() => Date.now());
   const schedule = options.schedule ?? queueMicrotask;
   // Coalesce latest world/intent and repeated status requests; never grow with packet rate.
   let events = new Map<RunnerEvent['type'], RunnerEvent>();

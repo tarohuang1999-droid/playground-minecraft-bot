@@ -6,8 +6,8 @@ import { navigationConfig } from '../../config/index.ts';
 
 export interface WorkSubtreeOptions {
   onNavigationFailed?: ((reason: string, missionId: string) => void) | undefined;
-  onFarmingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED') => void) | undefined;
-  onHuntingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED') => void) | undefined;
+  onFarmingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED', missionId: string) => void) | undefined;
+  onHuntingFinished?: ((reason: 'TIMEOUT' | 'COMPLETED', missionId: string) => void) | undefined;
   logger?: NavigationLogger | undefined;
   getAvailableFarmland?: ((rallyPoint: Position, maxRadius: number) => Position | null) | undefined;
   getHuntableAnimal?:
@@ -227,32 +227,23 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !available.has('FarmPlant') || !isFarmingActive(s) }
   );
 
-  let farmingFinishedTriggered = false;
   const isFarmingFinished = (s: BlackboardSnapshot) => canFarm(s) && !isFarmingActive(s);
 
   const farmFinish = guard(
     'FarmFinish-ready',
     s => isFarmingFinished(s),
     action('FarmFinish', s => {
-      if (!farmingFinishedTriggered) {
-        farmingFinishedTriggered = true;
-        const workArea = s.intent.workArea!;
-        const elapsed = s.observedAt - workArea.startedAt;
-        const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
-        options?.onFarmingFinished?.(reason);
-      }
+      const workArea = s.intent.workArea!;
+      const elapsed = s.observedAt - workArea.startedAt;
+      const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
+      options?.onFarmingFinished?.(reason, s.intent.missionId);
       return {
         actionType: 'Idle',
         targetId: null,
         params: {},
       };
     }),
-    {
-      exit: s => {
-        if (!canFarm(s)) farmingFinishedTriggered = false;
-        return true;
-      },
-    }
+    { exit: s => !isFarmingFinished(s) }
   );
 
   const canHunt = (s: BlackboardSnapshot) =>
@@ -307,32 +298,23 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !available.has('HuntAnimal') || !isHuntingActive(s) }
   );
 
-  let huntingFinishedTriggered = false;
   const isHuntingFinished = (s: BlackboardSnapshot) => canHunt(s) && !isHuntingActive(s);
 
   const huntFinish = guard(
     'HuntFinish-ready',
     s => isHuntingFinished(s),
     action('HuntFinish', s => {
-      if (!huntingFinishedTriggered) {
-        huntingFinishedTriggered = true;
-        const workArea = s.intent.workArea!;
-        const elapsed = s.observedAt - workArea.startedAt;
-        const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
-        options?.onHuntingFinished?.(reason);
-      }
+      const workArea = s.intent.workArea!;
+      const elapsed = s.observedAt - workArea.startedAt;
+      const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
+      options?.onHuntingFinished?.(reason, s.intent.missionId);
       return {
         actionType: 'Idle',
         targetId: null,
         params: {},
       };
     }),
-    {
-      exit: s => {
-        if (!canHunt(s)) huntingFinishedTriggered = false;
-        return true;
-      },
-    }
+    { exit: s => !isHuntingFinished(s) }
   );
 
   return reactiveSelector('work', [

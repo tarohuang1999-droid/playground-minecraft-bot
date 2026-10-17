@@ -50,6 +50,7 @@ export interface HuntingLogger {
 }
 
 export interface HuntingOptions {
+  now?: (() => number) | undefined;
   onAnimalAttacked?: ((entityId: number, animalName: string) => void) | undefined;
   onAnimalKilled?: ((animalName: string, entityId: number) => void) | undefined;
   onAnimalEscaped?: ((entityId: number) => void) | undefined;
@@ -60,6 +61,8 @@ export function createHunting(
   options: HuntingOptions = {},
   logger?: HuntingLogger
 ) {
+  const getNow = () => (options.now ? options.now() : Date.now());
+
   return {
     huntAnimal(request: ActionRequest): ActionAdapter {
       let active = true;
@@ -144,6 +147,10 @@ export function createHunting(
                 try {
                   await bot.equip(weaponItem, 'hand');
                 } catch (err) {
+                  if (!active || !ctx.isActive()) {
+                    cleanupListeners();
+                    return;
+                  }
                   logger?.warn(`[hunting] failed to equip weapon: ${err}`);
                 }
               }
@@ -165,6 +172,10 @@ export function createHunting(
               );
             }
           } catch (err) {
+            if (!active || !ctx.isActive()) {
+              cleanupListeners();
+              return;
+            }
             logger?.warn(`[hunting] setGoal error: ${err}`);
           }
         },
@@ -229,7 +240,7 @@ export function createHunting(
             botPos.z - target.position.z
           );
 
-          const now = Date.now();
+          const now = getNow();
           if (dist <= 3.0 && now - lastAttackTime >= 600) {
             lastAttackTime = now;
             if (typeof bot.lookAt === 'function') {
@@ -246,6 +257,7 @@ export function createHunting(
                 hasAttacked = true;
                 options.onAnimalAttacked?.(targetId, targetName);
               } catch (err) {
+                if (!active || !ctx.isActive()) return;
                 logger?.warn(`[hunting] attack error: ${err}`);
               }
             }

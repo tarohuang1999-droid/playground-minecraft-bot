@@ -42,10 +42,10 @@
    - 在 `src/bot.ts` 的 `entityHurt` 中，當 `source` 為空時，僅在候選玩家於過去 `1000ms` 內有明確 `recentArmSwings` 紀錄（`now - swingTime <= 1000`）時才將其視為攻擊者；若無近期揮手紀錄，忽略玩家反擊，防止摔傷或環境傷害誤砍主人與路人。
 
 ### 3.1.3 驗收門檻
-- [ ] 在預設 `startBot` / `attachCompanion` 時鐘下推進時間超過 20 分鐘，`FARM` 與 `HUNT` 皆能準時觸發 `TIMEOUT`。
-- [ ] 同時掛載 `navigation` 與 `farming` 時，`FarmPlant` 呼叫 `bot.placeBlock` 不再被 `NavigationExecutionBoundary` 拒絕。
-- [ ] `FarmPlant` 在 `placeBlock` 進行中被 `cancel()` 後，不會再觸發 fallback `activateBlock` 或 `swingArm`。
-- [ ] 旁邊有未揮手的玩家時觸發無來源 `entityHurt`，不會將該玩家加入 `threats`。
+- [x] 在預設 `startBot` / `attachCompanion` 時鐘下推進時間超過 20 分鐘，`FARM` 與 `HUNT` 皆能準時觸發 `TIMEOUT`。
+- [x] 同時掛載 `navigation` 與 `farming` 時，`FarmPlant` 呼叫 `bot.placeBlock` 不再被 `NavigationExecutionBoundary` 拒絕。
+- [x] `FarmPlant` 在 `placeBlock` 進行中被 `cancel()` 後，不會再觸發 fallback `activateBlock` 或 `swingArm`。
+- [x] 旁邊有未揮手的玩家時觸發無來源 `entityHurt`，不會將該玩家加入 `threats`。
 
 ---
 
@@ -69,9 +69,9 @@
   - 移除 `let farmingFinishedTriggered = false` 與 `let huntingFinishedTriggered = false`，改由外部傳入 `onFarmingFinished(missionId, reason)` 與 `onHuntingFinished(missionId, reason)`，在 `TaskSessionManager` 內以 `missionId` 進行單次觸發保護，徹底遵守 `[RULE-02]`。
 
 ### 3.2.3 驗收門檻
-- [ ] 連續執行 3 次 `!hunt` 或 `!farm`（Start $\to$ Complete $\to$ Start $\to$ Complete），每一次都能正常觸發完成通知並切換回 `IDLE`。
-- [ ] 動物被攻擊後若僅觸發 `entityGone`（逃出視野/區塊卸載）而不觸發 `entityDead`，不計入擊殺數。
-- [ ] `src/bt/subtrees/work.ts` 內部無任何跨任務 `let` 可變閉包旗標。
+- [x] 連續執行 3 次 `!hunt` 或 `!farm`（Start $\to$ Complete $\to$ Start $\to$ Complete），每一次都能正常觸發完成通知並切換回 `IDLE`。
+- [x] 動物被攻擊後若僅觸發 `entityGone`（逃出視野/區塊卸載）而不觸發 `entityDead`，不計入擊殺數。
+- [x] `src/bt/subtrees/work.ts` 內部無任何跨任務 `let` 可變閉包旗標。
 
 ---
 
@@ -90,8 +90,8 @@
    - 呼叫 `parseCommand(owner, username, message)`，執行各指令的前置條件檢查（`!come` 檢查主人可見、`!return` 檢查 Base/Spawn、`!farm` 檢查種子、`!item` 格式化輸出裝備與背包），並呼叫 `taskSessionManager.startFarming/startHunting` 與 `runner.enqueue`。
 
 ### 3.3.3 驗收門檻
-- [ ] 新增模組零 `any`（遵守 `[RULE-01]`）。
-- [ ] `CommandController` 與 `TaskSessionManager` 可透過輕量級單元測試獨立驗證，不需啟動完整 Mineflayer 實例。
+- [x] 新增模組零 `any`（遵守 `[RULE-01]`）。
+- [x] `CommandController` 與 `TaskSessionManager` 可透過輕量級單元測試獨立驗證，不需啟動完整 Mineflayer 實例。
 
 ---
 
@@ -101,6 +101,6 @@
 完成 `src/bot.ts` 瘦身，使其成為純粹的 **Composition Root（組裝根）與頂層生命週期管理入口**，並通過所有單元測試與新增的跨回合/邊界回歸測試。
 
 ### 3.4.2 驗收門檻
-- [ ] `src/bot.ts` 行數精簡至 **220 行以內**，內部無業務計數變數、無長篇指令 `if-else`。
-- [ ] `companion.dispose()` 正確釋放所有事件監聽器與 `navigation` 的 API 包裝（重複 attach/dispose 不洩漏、不疊加 wrapper）。
-- [ ] `pnpm run typecheck`、`pnpm run lint`、`pnpm run format:check` 與 `pnpm test` 100% 通過。
+- [x] `src/bot.ts` 行數精簡至 **220 行以內**，內部無業務計數變數、無長篇指令 `if-else`。
+- [x] `companion.dispose()` 正確釋放所有事件監聽器與 `navigation` 的 API 包裝（重複 attach/dispose 不洩漏、不疊加 wrapper）。
+- [x] `pnpm run typecheck`、`pnpm run lint`、`pnpm run format:check` 與 `pnpm test` 100% 通過。

@@ -14,6 +14,7 @@ import {
   PLACE_WHITELIST,
   NavigationExecutionBoundary,
   createNavigationTaskState,
+  type GuardableBot,
   type NavigationRunContext,
   type NavigationTaskState,
 } from './navigation-guard.ts';
@@ -22,6 +23,7 @@ export {
   PLACE_WHITELIST,
   NavigationExecutionBoundary,
   createNavigationTaskState,
+  type GuardableBot,
   type NavigationRunContext,
   type NavigationTaskState,
 };
@@ -33,7 +35,7 @@ export interface NavigationEntity {
   position: { x: number; y: number; z: number };
 }
 
-export interface NavigationBot {
+export interface NavigationBot extends GuardableBot {
   entity?: {
     position: { x: number; y: number; z: number };
     yaw?: number;
@@ -507,11 +509,21 @@ export function setupMovements(
           };
         }
 
-        (bot as any).on?.('path_update', (results: any) => {
+        const onPathUpdate = (results: any) => {
           if (results?.path) sanitizeDoorWaypoints(bot, results.path);
-        });
+        };
+        (bot as any).on?.('path_update', onPathUpdate);
 
         (bot.pathfinder as any)._doorSanitized = true;
+        (bot.pathfinder as any)._doorSanitizedCleanup = () => {
+          (bot as any).removeListener?.('path_update', onPathUpdate);
+          (bot.pathfinder as any).getPathTo = origGetPathTo;
+          if (origGetPathFromTo) {
+            (bot.pathfinder as any).getPathFromTo = origGetPathFromTo;
+          }
+          delete (bot.pathfinder as any)._doorSanitized;
+          delete (bot.pathfinder as any)._doorSanitizedCleanup;
+        };
       }
     }
 
@@ -778,6 +790,7 @@ export function createNavigation(
 
           if (!target) {
             logger?.warn('[navigation] target lost during follow');
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'FAILURE', reason: 'Target lost' };
@@ -795,6 +808,7 @@ export function createNavigation(
             logger?.info(
               `[navigation] reached target (distance ${dist3D.toFixed(1)} <= ${exitDistance}, dy=${dy.toFixed(1)})`
             );
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             return { status: 'SUCCESS' };
@@ -831,6 +845,7 @@ export function createNavigation(
             logger?.warn(
               '[navigation] GoalFollow path obstructed or stalled (> 1500ms); reporting failure to BT recovery'
             );
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             callbacks?.onNavigationFailed?.(
@@ -1297,6 +1312,7 @@ export function createNavigation(
           }
 
           if (!targetPos) {
+            boundary.setActiveContext(null);
             return { status: 'FAILURE', reason: 'Target position missing' };
           }
 
@@ -1308,6 +1324,7 @@ export function createNavigation(
           );
           if (dist <= 2.5) {
             logger?.info('[navigation] ComeOnce arrived at target position');
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             onArrival?.();
@@ -1344,6 +1361,7 @@ export function createNavigation(
             logger?.warn(
               '[navigation] ComeOnce path obstructed or stalled (> 1500ms); reporting failure to BT recovery'
             );
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             callbacks?.onNavigationFailed?.(
@@ -1459,6 +1477,7 @@ export function createNavigation(
           }
 
           if (!targetPos) {
+            boundary.setActiveContext(null);
             return { status: 'FAILURE', reason: 'Destination missing' };
           }
 
@@ -1470,6 +1489,7 @@ export function createNavigation(
           );
           if (dist <= 2.5) {
             logger?.info('[navigation] ReturnToBase arrived at destination');
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             onArrival?.();
@@ -1506,6 +1526,7 @@ export function createNavigation(
             logger?.warn(
               '[navigation] ReturnToBase path obstructed or stalled (> 1500ms); reporting failure to BT recovery'
             );
+            boundary.setActiveContext(null);
             bot.pathfinder?.setGoal(null);
             bot.setControlState?.('jump', false);
             callbacks?.onNavigationFailed?.(
@@ -1751,5 +1772,10 @@ export function createNavigation(
     doorManager,
     getTaskState: () => currentTaskState,
     boundary,
+    dispose() {
+      boundary.uninstall(bot as any);
+      (bot.pathfinder as any)?._doorSanitizedCleanup?.();
+      doorManager.reset();
+    },
   };
 }
