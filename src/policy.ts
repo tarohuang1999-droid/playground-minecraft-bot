@@ -38,6 +38,7 @@ export const ACTION_POLICY = {
     requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
   },
   PickupItem: { mode: 'WORK', priority: 10, requiredResources: ['MOVE', 'LOOK'] },
+  PlaceBlock: { mode: 'WORK', priority: 20, requiredResources: ['HAND', 'LOOK'] },
   ComeOnce: { mode: 'NAVIGATION', priority: 10, requiredResources: ['MOVE', 'LOOK'] },
   ReturnToBase: { mode: 'NAVIGATION', priority: 10, requiredResources: ['MOVE', 'LOOK'] },
   UnstickCorner: { mode: 'NAVIGATION', priority: 10, requiredResources: ['MOVE', 'LOOK'] },

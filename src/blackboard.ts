@@ -39,6 +39,7 @@ export interface WorldState {
   nearbyDrops: Array<ObservedEntity & { itemName: string }>;
   inventory: {
     freeSlots: number;
+    heldItemName?: string | null;
     bestFood: { itemId: number; name: string; foodPoints: number } | null;
     bestWeapon: { itemId: number; name: string; attackDamage: number } | null;
     equippedWeaponDamage: number;
@@ -55,9 +56,9 @@ export interface WorkAreaState {
   targetAnimal?: string | null;
 }
 export interface IntentState {
-  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM' | 'HUNT' | 'SLEEP';
+  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM' | 'HUNT' | 'SLEEP' | 'PLACE';
   targetPosition?: Position | null;
-
+  placeBlockItem?: string | null | undefined;
   workArea?: WorkAreaState | null;
   canDig: boolean;
   allowBridge: boolean;
@@ -150,6 +151,7 @@ export function createBlackboard(master: string) {
     intent: {
       mode: 'IDLE',
       targetPosition: null,
+      placeBlockItem: null,
       workArea: null,
       canDig: false,
       allowBridge: false,
@@ -167,12 +169,14 @@ export function createBlackboard(master: string) {
       mode: IntentState['mode'],
       now: number,
       targetPosition?: Position | null,
-      workArea?: WorkAreaState | null
+      workArea?: WorkAreaState | null,
+      placeBlockItem?: string | null
     ) {
       state.intent = {
         ...state.intent,
         mode,
         targetPosition: targetPosition ?? null,
+        placeBlockItem: placeBlockItem ?? null,
         workArea: workArea ?? null,
         missionId: nextMissionId(mode),
         updatedAt: now,

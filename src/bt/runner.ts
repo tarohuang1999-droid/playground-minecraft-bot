@@ -16,6 +16,7 @@ export type RunnerEvent =
       type: 'intent';
       mode: IntentState['mode'];
       targetPosition?: Position | null;
+      placeBlockItem?: string | null | undefined;
       workArea?: WorkAreaState | null;
     }
   | { type: 'set_dig'; enabled: boolean }
@@ -53,7 +54,13 @@ export function createRunner(options: {
       for (const event of batch.values()) {
         if (event.type === 'world') board.setWorld(event.world);
         if (event.type === 'intent')
-          board.setIntent(event.mode, time, event.targetPosition, event.workArea);
+          board.setIntent(
+            event.mode,
+            time,
+            event.targetPosition,
+            event.workArea,
+            event.placeBlockItem
+          );
         if (event.type === 'set_dig') board.setDig(event.enabled, time);
         if (event.type === 'set_bridge') board.setBridge(event.enabled, time);
       }

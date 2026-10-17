@@ -13,6 +13,7 @@ export type CommandEvent =
   | { type: 'item'; target: 'equipment' | 'inventory' }
   | { type: 'farm'; crop: string | null }
   | { type: 'hunt'; target: string | null }
+  | { type: 'place'; item: string }
   | { type: 'command_usage'; message: string }
   | { type: 'unknown'; raw: string };
 
@@ -38,6 +39,10 @@ export function parseCommand(
     if (cmd === 'sleep') return { type: 'sleep' };
     if (cmd === 'come') return { type: 'come' };
     if (cmd === 'return') return { type: 'intent', mode: 'RETURN' };
+  }
+
+  if (cmd === 'place') {
+    return { type: 'place', item: tokens[1] ?? 'dirt' };
   }
 
   if (cmd === 'dig') {

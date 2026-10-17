@@ -317,12 +317,30 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !isHuntingFinished(s) }
   );
 
+  const canPlace = (s: BlackboardSnapshot) =>
+    s.world.self.isAlive && s.intent.mode === 'PLACE';
+
+  const placeBlock = guard(
+    'PlaceBlock-ready',
+    s => available.has('PlaceBlock') && canPlace(s),
+    action('PlaceBlock', s => ({
+      actionType: 'PlaceBlock',
+      targetId: null,
+      params: {
+        item: s.intent.placeBlockItem ?? 'dirt',
+      },
+      requiredResources: ['HAND', 'LOOK'],
+    })),
+    { exit: s => !available.has('PlaceBlock') || !canPlace(s) }
+  );
+
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
     huntAnimal,
     farmPlant,
     comeOnce,
+    placeBlock,
     returnToBase,
     huntFinish,
     farmFinish,

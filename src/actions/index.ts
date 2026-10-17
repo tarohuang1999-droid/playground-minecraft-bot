@@ -13,6 +13,7 @@ import { createInventoryAdapters, type InventoryBot } from './inventory.ts';
 import { createNavigation, type NavigationBot } from './navigation.ts';
 import { createSleepAdapter, type SleepBot } from './sleep.ts';
 import { createSetBedAdapter, type SetBedBot } from './bed.ts';
+import { createPlaceBlock, type PlaceBlockBot } from './place.ts';
 import { survivalConfig } from '../config/index.ts';
 
 export interface ActionBotPort extends PerceptionSource {
@@ -202,12 +203,21 @@ export function createActionAdapters(bot: ActionBotPort, deps: CreateActionAdapt
     },
   });
 
+  const placeBlockAdapter = createPlaceBlock(bot as unknown as PlaceBlockBot, logger, {
+    chat,
+    onPlaceFinished: () => {
+      enqueueEvent({ type: 'intent', mode: 'STAY' });
+      requestUrgentTick();
+    },
+  });
+
   const adapters: AdapterRegistry = {
     Idle: () => ({ start() {}, cancel() {} }),
     Chat: chat.adapter,
     Combat: combat,
     SleepAtBed: sleepAdapter,
     SetBed: setBedAdapter,
+    PlaceBlock: placeBlockAdapter,
     ...navigationAdapters,
     ...farmingAdapters,
     ...huntingAdapters,

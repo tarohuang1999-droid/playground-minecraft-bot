@@ -51,14 +51,20 @@ export function maintenanceSubtree(available: ReadonlySet<string>) {
         available.has('EquipBest') &&
         s.world.self.isAlive &&
         s.world.threats.length === 0 &&
+        s.intent.mode !== 'FARM' &&
         (s.world.inventory.pendingArmorUpgrade !== null ||
-          (s.world.inventory.bestWeapon?.attackDamage ?? 0) >
-            s.world.inventory.equippedWeaponDamage),
+          (!s.world.inventory.heldItemName &&
+            (s.world.inventory.bestWeapon?.attackDamage ?? 0) >
+              s.world.inventory.equippedWeaponDamage) ||
+          (s.world.inventory.equippedWeaponDamage > 0 &&
+            (s.world.inventory.bestWeapon?.attackDamage ?? 0) >
+              s.world.inventory.equippedWeaponDamage)),
       action('equip', () => ({ actionType: 'EquipBest', targetId: null, params: {} })),
       {
         exit: s =>
           !available.has('EquipBest') ||
           !s.world.self.isAlive ||
+          s.intent.mode === 'FARM' ||
           (s.world.inventory.pendingArmorUpgrade === null &&
             (s.world.inventory.bestWeapon?.attackDamage ?? 0) <=
               s.world.inventory.equippedWeaponDamage),

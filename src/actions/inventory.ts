@@ -134,10 +134,16 @@ export function createInventoryAdapters(bot: InventoryBot, logger?: InventoryLog
             }
           }
 
-          // Equip best weapon if better than equipped
+          // Equip best weapon if better than equipped (and not intentionally holding non-weapon item)
           const snapshot = ctx.getSnapshot();
           const bestWp = snapshot.world.inventory.bestWeapon;
-          if (bestWp && bestWp.attackDamage > snapshot.world.inventory.equippedWeaponDamage) {
+          const currentHeldName = (bot as any).heldItem?.name;
+          const isHoldingNonWeapon = !!currentHeldName && snapshot.world.inventory.equippedWeaponDamage === 0;
+          if (
+            bestWp &&
+            !isHoldingNonWeapon &&
+            bestWp.attackDamage > snapshot.world.inventory.equippedWeaponDamage
+          ) {
             const items = typeof bot.inventory.items === 'function' ? bot.inventory.items() : [];
             const wpItem = items.find(
               i => i.name === bestWp.name || i.type === bestWp.itemId || i.id === bestWp.itemId

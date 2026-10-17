@@ -535,6 +535,7 @@ export function createPerception(
       world.inventory.bestWeapon = bestWeapon;
 
       const held = bot.heldItem ?? slots[36 + (bot.quickBarSlot ?? 0)];
+      world.inventory.heldItemName = held?.name ?? null;
       world.inventory.equippedWeaponDamage = held ? getWeaponDamage(held.name) : 0;
 
       // 4. Plantable seeds:

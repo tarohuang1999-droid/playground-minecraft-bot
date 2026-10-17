@@ -10,6 +10,7 @@ import type { TaskSessionManager } from './sessions/task-session-manager.ts';
 
 export interface CommandInventoryItem {
   name?: string | undefined;
+  type?: number | undefined;
   count?: number | undefined;
 }
 
@@ -19,6 +20,8 @@ export interface CommandBotPort {
     id?: number | undefined;
     username?: string | undefined;
     position?: { x: number; y: number; z: number } | undefined;
+    yaw?: number | undefined;
+    pitch?: number | undefined;
   };
   heldItem?: { name?: string | undefined } | null | undefined;
   quickBarSlot?: number | undefined;
@@ -29,6 +32,9 @@ export interface CommandBotPort {
   };
   findBlock?(options: unknown): unknown;
   activateBlock?(block: unknown): Promise<void>;
+  blockAt?(pos: unknown): unknown;
+  placeBlock?(referenceBlock: unknown, faceVector: unknown): Promise<void>;
+  equip?(item: unknown, destination: string): Promise<void>;
   blocks?: Record<string, unknown> | undefined;
 }
 
@@ -326,6 +332,36 @@ export function createCommandController(deps: CommandControllerDeps) {
         },
       });
       chat.enqueue('Intent=HUNT');
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'place') {
+      const targetQuery = (event.item || 'dirt').toLowerCase();
+      const items = typeof bot.inventory?.items === 'function' ? bot.inventory.items() : [];
+      const targetItem = items.find(i => {
+        if (!i?.name) return false;
+        const n = i.name.toLowerCase();
+        return (
+          n === targetQuery ||
+          (targetQuery === 'dirt' && (n.includes('dirt') || n.includes('grass_block')))
+        );
+      });
+
+      if (!targetItem) {
+        logger?.warn(`[chat] !place rejected: no "${targetQuery}" found in inventory`);
+        chat.enqueue(`No ${targetQuery} in inventory!`);
+        runner.requestUrgentTick();
+        return;
+      }
+
+      logger?.info(`[chat] accepted command: place (${targetItem.name})`);
+      runner.enqueue({
+        type: 'intent',
+        mode: 'PLACE',
+        placeBlockItem: targetItem.name,
+      });
+      chat.enqueue(`Intent=PLACE (${targetItem.name})`);
       runner.requestUrgentTick();
       return;
     }
