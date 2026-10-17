@@ -155,6 +155,7 @@ test('Stage 3.1: default runner clock uses Date.now() and 20-minute timeout trig
 test('Stage 3.1: FarmPlant calls bot.placeBlock without being rejected by NavigationExecutionBoundary', async () => {
   const fakeTime = 10_000;
   const bot = new Stage3MockBot();
+  (bot as any).activateBlock = undefined;
   // Position bot at (0, 64, 0.5) so distance to farmland center (1.5, 64, 0.5) is 1.5 (in [1.2, 2.2])
   bot.entity.position = { x: 0, y: 64, z: 0.5 };
   bot.inventoryItems = [{ name: 'wheat_seeds', type: 295, count: 5 }];
@@ -200,7 +201,6 @@ test('Stage 3.1: FarmPlant calls bot.placeBlock without being rejected by Naviga
 
 test('Stage 3.1: FarmPlant cancelled during in-flight placeBlock does not trigger fallback activateBlock or swingArm and tracks isStopped()', async () => {
   let rejectPlace!: (err: Error) => void;
-  let activateCalls = 0;
   let swingCalls = 0;
 
   const fakeBot = {
@@ -220,9 +220,6 @@ test('Stage 3.1: FarmPlant cancelled during in-flight placeBlock does not trigge
       new Promise<void>((_resolve, reject) => {
         rejectPlace = reject;
       }),
-    activateBlock: async () => {
-      activateCalls++;
-    },
     swingArm: () => {
       swingCalls++;
     },
@@ -273,7 +270,6 @@ test('Stage 3.1: FarmPlant cancelled during in-flight placeBlock does not trigge
 
   await new Promise(resolve => setImmediate(resolve));
 
-  assert.equal(activateCalls, 0, 'Cancelled FarmPlant must not call fallback activateBlock');
   assert.equal(swingCalls, 0, 'Cancelled FarmPlant must not call fallback swingArm');
   assert.equal(adapter.isStopped?.(), true, 'Should report stopped once inFlight settles');
 });

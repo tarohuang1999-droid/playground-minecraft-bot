@@ -192,25 +192,29 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     return;
                   }
 
-                  // 4. Plant: Prefer placeBlock (official Mineflayer method for placing blocks/seeds)
-                  // Fallback to activateBlock if placeBlock throws or is unavailable
-                  let placeError: any = null;
+                  // 4. Plant: Prefer activateBlock (player right-clicking farmland with seeds in hand)
+                  // Fallback to placeBlock if activateBlock is unavailable or throws
+                  let plantError: any = null;
                   let methodUsed = 'none';
 
-                  if (typeof (bot as any).placeBlock === 'function') {
+                  if (typeof (bot as any).activateBlock === 'function') {
                     try {
-                      methodUsed = 'placeBlock';
+                      methodUsed = 'activateBlock';
                       logger?.info(
-                        `[farming] Executing placeBlock on farmland (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) with face (0, 1, 0)`
+                        `[farming] Executing activateBlock on farmland (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) with face (0, 1, 0)`
                       );
-                      await (bot as any).placeBlock(farmlandBlock, new Vec3(0, 1, 0));
+                      await (bot as any).activateBlock(farmlandBlock, new Vec3(0, 1, 0));
+                      if (!active || !ctx.isActive()) return;
+                      if (typeof (bot as any).swingArm === 'function') {
+                        (bot as any).swingArm('right');
+                      }
                       logger?.info(
-                        `[farming] placeBlock completed successfully on (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`
+                        `[farming] activateBlock completed successfully on (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`
                       );
                     } catch (err: any) {
-                      placeError = err;
+                      plantError = err;
                       logger?.warn(
-                        `[farming] placeBlock error on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): ${err?.message ?? err}`
+                        `[farming] activateBlock error on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): ${err?.message ?? err}`
                       );
                     }
                   }
@@ -218,24 +222,24 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                   if (!active || !ctx.isActive()) return;
 
                   if (
-                    (!placeError && methodUsed === 'none') ||
-                    (placeError && typeof (bot as any).activateBlock === 'function')
+                    (!plantError && methodUsed === 'none') ||
+                    (plantError && typeof (bot as any).placeBlock === 'function')
                   ) {
-                    if (typeof (bot as any).activateBlock === 'function') {
+                    if (typeof (bot as any).placeBlock === 'function') {
                       try {
-                        methodUsed = placeError ? 'activateBlock (fallback)' : 'activateBlock';
+                        methodUsed = plantError ? 'placeBlock (fallback)' : 'placeBlock';
                         logger?.info(
-                          `[farming] Executing ${methodUsed} on farmland (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`
+                          `[farming] Executing ${methodUsed} on farmland (${targetPos.x}, ${targetPos.y}, ${targetPos.z}) with face (0, 1, 0)`
                         );
-                        await (bot as any).activateBlock(farmlandBlock, new Vec3(0, 1, 0));
-                        if (!active || !ctx.isActive()) return;
-                        if (typeof (bot as any).swingArm === 'function') {
-                          (bot as any).swingArm('right');
-                        }
-                      } catch (actErr: any) {
-                        if (!active || !ctx.isActive()) return;
+                        await (bot as any).placeBlock(farmlandBlock, new Vec3(0, 1, 0));
+                        plantError = null;
+                        logger?.info(
+                          `[farming] placeBlock completed successfully on (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`
+                        );
+                      } catch (pErr: any) {
+                        plantError = pErr;
                         logger?.warn(
-                          `[farming] activateBlock error on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): ${actErr?.message ?? actErr}`
+                          `[farming] placeBlock error on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): ${pErr?.message ?? pErr}`
                         );
                       }
                     }
@@ -247,7 +251,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                   await new Promise(r => setTimeout(r, 100));
                   if (!active || !ctx.isActive()) return;
 
-                  // 6. Verify success: check block above or seed count
+                  // 6. Verify success: check block above or seed count (SR-10: strictly do not treat !aboveBlock as success)
                   const abovePos = new Vec3(targetPos.x, targetPos.y + 1, targetPos.z);
                   const aboveBlock =
                     typeof (bot as any).blockAt === 'function'
@@ -266,7 +270,7 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     `[farming] Verification on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): method=${methodUsed}, aboveBlock=${aboveBlock?.name ?? 'null'}, seeds: ${initialCount} -> ${newCount}`
                   );
 
-                  const isSuccess = blockChanged || seedDecreased || !aboveBlock;
+                  const isSuccess = Boolean(blockChanged || seedDecreased);
 
                   if (isSuccess) {
                     options.onCropPlanted?.(cropType, targetPos);
@@ -276,12 +280,12 @@ export function createFarming(bot: NavigationBot, options: FarmingOptions = {}) 
                     finishedResult = { status: 'SUCCESS' };
                   } else {
                     logger?.warn(
-                      `[farming] Planting verification failed on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): aboveBlock is still ${aboveBlock?.name ?? 'air'}, seeds unchanged (${newCount}/${initialCount}), error=${placeError?.message ?? 'none'}`
+                      `[farming] Planting verification failed on (${targetPos.x}, ${targetPos.y}, ${targetPos.z}): aboveBlock is still ${aboveBlock?.name ?? 'air'}, seeds unchanged (${newCount}/${initialCount}), error=${plantError?.message ?? 'none'}`
                     );
                     options.onFarmlandFailed?.(targetPos);
                     finishedResult = {
                       status: 'FAILURE',
-                      reason: `Planting verification failed: aboveBlock=${aboveBlock?.name ?? 'air'}, error=${placeError?.message ?? 'none'}`,
+                      reason: `Planting verification failed: aboveBlock=${aboveBlock?.name ?? 'air'}, error=${plantError?.message ?? 'none'}`,
                     };
                   }
                 } catch (err) {

@@ -396,6 +396,7 @@ test('farming adapter: farmPlant disables parkour, approaches, equips seed, look
 
 test('farming adapter: farmPlant prefers activateBlock when available and swings arm', async () => {
   const activateBlockCalls: any[] = [];
+  const placeBlockCalls: any[] = [];
   const swingArmCalls: any[] = [];
   let plantedPos: any = null;
 
@@ -408,10 +409,14 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
     async lookAt() {},
     async equip() {},
     blockAt(pos: any) {
-      return { position: pos, name: 'farmland' };
+      if (pos.y === 64) return { position: pos, name: 'farmland' };
+      return { position: pos, name: 'wheat' };
     },
     async activateBlock(block: any) {
       activateBlockCalls.push(block);
+    },
+    async placeBlock(block: any, vec: any) {
+      placeBlockCalls.push({ block, vec });
     },
     swingArm(hand: string) {
       swingArmCalls.push(hand);
@@ -452,8 +457,78 @@ test('farming adapter: farmPlant prefers activateBlock when available and swings
 
   assert.equal(activateBlockCalls.length, 1, 'activateBlock should be called');
   assert.equal(activateBlockCalls[0]?.name, 'farmland');
+  assert.equal(
+    placeBlockCalls.length,
+    0,
+    'placeBlock must not be called when activateBlock is available and succeeds'
+  );
   assert.equal(swingArmCalls.length, 1, 'swingArm should be called');
   assert.equal(plantedPos?.x, 2);
+});
+
+test('farming adapter: SR-10 strictly rejects unverified planting when aboveBlock is null or air and seeds unchanged', async () => {
+  let failedFarmlandPos: any = null;
+  let plantedCrop: any = null;
+
+  const fakeBot: any = {
+    entity: { id: 1, position: { x: 1, y: 64, z: 0 } },
+    pathfinder: { setGoal() {}, setMovements() {} },
+    inventory: {
+      items: () => [{ name: 'wheat_seeds', type: 100, count: 5 }],
+    },
+    async lookAt() {},
+    async equip() {},
+    blockAt(pos: any) {
+      if (pos.y === 64) return { position: pos, name: 'farmland' };
+      // Simulate chunk not loaded or air above farmland
+      return null;
+    },
+    async activateBlock() {},
+    swingArm() {},
+  };
+
+  const farming = createFarming(fakeBot, {
+    onCropPlanted: crop => {
+      plantedCrop = crop;
+    },
+    onFarmlandFailed: pos => {
+      failedFarmlandPos = pos;
+    },
+  });
+
+  const request: ActionRequest = {
+    nodeId: 'FarmPlant',
+    runId: 'farm-run-sr10',
+    actionType: 'FarmPlant',
+    targetId: null,
+    priority: 30,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { x: 2, y: 64, z: 0, seedItem: 'wheat_seeds', cropType: 'wheat' },
+  };
+
+  const board = createBlackboard('owner');
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = farming.farmPlant(request);
+  adapter.start(ctx);
+  adapter.update!(ctx);
+
+  await new Promise(resolve => setTimeout(resolve, 250));
+
+  assert.equal(
+    plantedCrop,
+    null,
+    'Must NOT mark crop planted when aboveBlock is null and seed count unchanged'
+  );
+  assert.ok(failedFarmlandPos !== null, 'Should report farmland failed on unverified planting');
+  assert.equal(failedFarmlandPos.x, 2);
 });
 
 test('farming adapter: cancel immediately stops FarmPlant and isStopped returns true', () => {
