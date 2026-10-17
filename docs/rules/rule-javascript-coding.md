@@ -1,6 +1,8 @@
-# JavaScript 開發規範與 AI Agent 編碼鐵律 (rule-javascript-coding.md)
+# [Superseded] JavaScript 開發規範與 AI Agent 編碼鐵律 (rule-javascript-coding.md)
 
-- **適用對象**：使用 JavaScript / CommonJS 實作之模組、維護現有腳本，以及 AI Coding Agent 開發流程。
+> **狀態：已廢棄（Superseded by [rule-typescript-coding.md](rule-typescript-coding.md)）**。本專案已全面遷移至 TypeScript，此檔案僅作早期歷史紀錄保留，AI Agent 請一律遵守 `rule-typescript-coding.md`。
+
+- **適用對象**：早期 CommonJS 歷史腳本（`base_bot*.js`）。
 - **參考架構**：系統設計以 `docs/sys-design/system-design-v1.1.md` 與 `docs/implement-plan.md` 為準。
 
 ---

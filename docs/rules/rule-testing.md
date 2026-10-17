@@ -36,9 +36,12 @@
    * 測試不得污染外部環境。若測試過程建立暫存檔案（如 `data/test-*.json` 或 `logs/test-*`），必須在 `finally` 或 `t.after()` 內保證被徹底清理。
    * EventEmitter 與定時器必須在測試結束時明確解綁（`dispose()` / `removeAllListeners()`）。
 4. **[TEST-04] 非同步與競態測試必須明確邊界**：
-   * 針對非同步動作（Promise, setTimeout, Physics Tick 柵欄），必須測試中途被取消（Preempted / Cancelled）或 session 重置時，舊回呼不能產生任何副作用（No Stale Continuation Effects）。
-5. **[TEST-05] 交付前完整驗證**：
-   * 提交測試重構或新測試前，必須先執行型別檢查（`pnpm run typecheck`）與測試套件（`pnpm test`），確保通過率為 100%。
+   * 針對非同步動作（Promise, setTimeout, Physics Tick 柵欄），必須測試中途被取消（Preempted / Cancelled）或 session 重置時，舊回呼（包含 `catch` fallback 分支）不能產生任何副作用（No Stale Continuation Effects）。
+5. **[TEST-05] 跨回合狀態重置與真實組裝驗證**：
+   * 任何具備完成狀態的任務（如 `FARM`, `HUNT`, `HARVEST`）必須驗證**連續執行兩輪以上**（Start $\to$ Complete $\to$ Start Again），確保完成旗標與計數器不會在第二輪卡死。
+   * 涉及 `bot.dig` 或 `bot.placeBlock` 的動作測試，必須在掛載導航防護（`NavigationExecutionBoundary`）的完整組裝環境下驗證不會被誤攔截。
+6. **[TEST-06] 交付前完整驗證**：
+   * 提交測試重構或新測試前，必須先執行型別檢查（`pnpm run typecheck`）、靜態檢查（`pnpm run lint`）與測試套件（`pnpm test`），確保通過率為 100%。
 
 ---
 
@@ -48,8 +51,10 @@
 | :--- | :--- | :--- |
 | `src/config/**` | `test/unit/config.test.ts` | 閥值不變式檢驗（遲滯區間合法性、時間範圍邊界） |
 | `src/bt/nodes.ts` | `test/unit/bt-nodes.test.ts` | 核心控制節點原語（selector, sequence, parallel, recovery） |
-| `src/bt/runner.ts` | `test/unit/runner-pipeline.test.ts` | Physics Tick 排程、事件收斂、世代防重入 |
-| `src/bt/subtrees/**` | `test/unit/{retreat,combat,pickup,maintenance}.test.ts` | 各子樹決策門檻與搶佔優先級 |
-| `src/commands.ts` | `test/unit/commands.test.ts` | 指令語法解析、大小寫相容、陌生人權限過濾 |
+| `src/bt/runner.ts` | `test/unit/runner-pipeline.test.ts` | Physics Tick 排程、事件收斂、世代防重入、統一時鐘 |
+| `src/bt/subtrees/**` | `test/unit/{retreat,combat,pickup,maintenance,farming,hunting}.test.ts` | 各子樹決策門檻、搶佔優先級與連續多輪任務重置 |
+| `src/commands.ts` & `src/command-controller.ts` | `test/unit/commands.test.ts` | 指令語法解析、前置條件檢查、陌生人權限過濾 |
+| `src/sessions/**` | `test/unit/task-session.test.ts` | 工作階段計數、死亡/消失事件區分、超時與重置 |
 | `src/actions/chat.ts` | `test/unit/chat.test.ts` | 訊息隊列上限、頻率限制（Rate-limiting）、佇列重置 |
 | `src/execution/**` | `test/unit/arbiter.test.ts`, `executor-fence.test.ts` | 資源通道競爭仲裁、Tick 柵欄與釋放邊界 |
+
