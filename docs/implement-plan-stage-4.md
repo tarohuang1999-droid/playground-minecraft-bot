@@ -10,20 +10,64 @@
 
 ## 階段目錄 (Stage 4 Breakdown)
 
-- **Stage 4.1: 多作物農事種植自動化修正與完成驗收 (`!farm`)**
-- **Stage 4.2: 多作物熟成收割與自動補種 (`!harvest`)**
-- **Stage 4.3: 夜晚自主回 Spawn 睡覺與起床作息 (Nightly Autonomous Sleep)**
+- **Stage 4.1: 夜晚自主回 Spawn 睡覺、床鋪設定 (`!setbed` / `SetBed`) 與起床作息 (Nightly Autonomous Sleep & Bed Setup)** *(已完成)*
+- **Stage 4.2: 多作物農事種植自動化修正與完成驗收 (`!farm`)**
+- **Stage 4.3: 多作物熟成收割與自動補種 (`!harvest`)**
 - **Stage 4.4: 命名箱子管理、損毀自動移除與物品存取 (`!box`)**
 - **Stage 4.5: Stage 4 綜合整合與端到端驗收測試**
 
 ---
 
-## Stage 4.1: 多作物農事種植自動化修正與完成驗收 (`!farm`)
+## Stage 4.1: 夜晚自主回 Spawn 睡覺、床鋪設定 (`!setbed` / `SetBed`) 與起床作息 (Nightly Autonomous Sleep & Bed Setup)
 
 ### 4.1.1 階段目標
+1. **床鋪設定 (`!setbed` / `SetBed`)**：
+   - 尋找周圍半徑 10 格內的可用床鋪（排除 `bedrock` 與被佔用的床）。
+   - 若未找到床鋪，即時回覆 `沒看到`。
+   - 若找到床鋪，設定為 Bot 出生點（`spawnPoint`），持久化至 `data/state.json`，在聊天室廣播 `Spawn point set to (x, y, z)`，並於距離 $\le 2.5$ 格內觸發右鍵綁定。
+2. **夜晚自主回 Spawn 睡覺與起床作息 (`SleepAtBed`)**：
+   - **出生點約束**：若未設定出生點（`spawnPoint === null`），嚴禁觸發睡覺！
+   - 當 Bot 處於 `IDLE` 狀態且已設定出生點，於遊戲夜晚（`timeOfDay >= 12541 && timeOfDay <= 23458`）或雷雨天自主前往床鋪睡覺。
+   - 睡眠中遭受攻擊或附近有威脅時立即呼叫 `bot.wake()`，由 `Combat` (80) 或 `Retreat` (100) 搶佔。
+   - 天亮時自然甦醒，發送 `Good morning!`，並維持 `IDLE` 狀態。
+
+### 4.1.2 規格與行為定義
+- **觸發條件**：
+  - 當前意圖模式為 `IDLE`（無其他進行中任務）。
+  - **嚴格出生點檢查**：`world.spawnPoint !== null`。
+  - 時間處於夜晚（`timeOfDay >= 12541 && timeOfDay <= 23458`）或雷雨天（`world.isRaining`）。
+  - 周圍無敵對實體威脅且未受傷（`threats.length === 0 && !tookDamageRecently`）。
+- **就寢與甦醒流程**：
+  1. 觸發 `SleepAtBed`（所需資源 `['MOVE', 'LOOK', 'HAND']`，優先級 15）。
+  2. 導航至床鋪旁（`GoalNear(bedPos, 1.8)`），到達（$\le 2.0$ 格）呼叫 `bot.sleep(bedBlock)`。
+  3. **遇襲醒來**：睡眠中若受到傷害（`tookDamageRecently`）或周圍出現威脅，立即呼叫 `bot.wake()`，交由 `Combat (80)` 或 `Retreat (100)` 搶佔。
+  4. **天亮醒來**：天亮時自動醒來並發送 `Good morning!`，維持 `IDLE`。
+
+### 4.1.3 交付與修改檔案
+- `src/actions/bed.ts`：實作 `SetBed` Action Adapter。
+- `src/actions/sleep.ts`：實作 `SleepAtBed` Action Adapter。
+- `src/perception.ts`：新增 `findNearbyBed(bot, maxDistance, center)`、支援 `timeOfDay`、`isRaining` 與 `isSleeping` 取樣。
+- `src/blackboard.ts`：`WorldState` 擴充 `timeOfDay`、`isRaining`、`isSleeping` 欄位。
+- `src/policy.ts`：註冊 `SetBed` 與 `SleepAtBed` 動作資源與優先級政策。
+- `src/commands.ts` & `src/command-controller.ts`：解析並調度 `!setbed` 指令。
+- `src/bt/subtrees/work.ts`：在 `work` 子樹掛載 `sleepAtBed` 守衛與行為節點。
+- `test/unit/stage-4-1-sleep-bed.test.ts`：新增 10 項單元與整合測試驗證。
+
+### 4.1.4 驗收門檻
+- [x] `!setbed` 在半徑 10 格內無床時回覆 `沒看到`，有床時正確設定出生點並持久化。
+- [x] 未設定出生點（`spawnPoint === null`）時絕對不觸發睡覺。
+- [x] 白天不觸發睡覺；夜晚且 `IDLE` 且有出生點時自動走回床鋪入睡。
+- [x] 睡覺中遭遇攻擊能立即呼叫 `bot.wake()` 並切換戰鬥/撤退。
+- [x] 天亮時自然甦醒，發送 `Good morning!`，不卡死在睡眠狀態。
+
+---
+
+## Stage 4.2: 多作物農事種植自動化修正與完成驗收 (`!farm`)
+
+### 4.2.1 階段目標
 基於 Stage 3 重構後的 `TaskSessionManager` 與已解除 `placeBlock` 誤攔截的 `NavigationExecutionBoundary`，完善並修正多作物農事耕作（`!farm`）：檢查背包中可播種的種子，在集合點半徑 25 格內尋找空置耕地（`farmland`）種植，並修正播種成功驗證語義（`SR-10`）。
 
-### 4.1.2 規格與修正重點
+### 4.2.2 規格與修正重點
 - **作物註冊表（Crop Registry）**：
   - 小麥：`wheat_seeds` $\to$ `wheat` (`age === 7`)。
   - 胡蘿蔔：`carrot` $\to$ `carrots` (`age === 7`)。
@@ -39,7 +83,7 @@
   - 背包種子用盡、無空置耕地、或達到 20 分鐘時限時，透過 `TaskSessionManager` 通知 `Farming completed. Planted N crops.` 並切換為 `IDLE`。
   - 連續 5 次播種失敗時自動熔斷，通知主人並切換為 `IDLE`。
 
-### 4.1.3 驗收門檻
+### 4.2.3 驗收門檻
 - [ ] 無種子時下達 `!farm` 能即時警示並退出。
 - [ ] `aboveBlock === null` 時不會誤判為播種成功，只有確認種上作物或種子消耗才計入 `plantedCount`。
 - [ ] 播種移動過程中不觸發跳躍，不破壞耕地方塊。
@@ -47,12 +91,12 @@
 
 ---
 
-## Stage 4.2: 多作物熟成收割與自動補種 (`!harvest`)
+## Stage 4.3: 多作物熟成收割與自動補種 (`!harvest`)
 
-### 4.2.1 階段目標
+### 4.3.1 階段目標
 實作多種農作物的成熟辨識、安全收割、掉落物回收與原地即時補種（Harvest & Replant），受直徑 50 格（半徑 25 格）集合點範圍與 1 遊戲日（20 分鐘）工時限制。
 
-### 4.2.2 規格與行為定義
+### 4.3.2 規格與行為定義
 - **指令語法**：
   - `!harvest`（或 `!reap`）：自動收割範圍內所有已成熟的作物（預設全部註冊作物，或優先小麥）。
   - `!harvest <crop>`：指定特定成熟作物收割（例如 `!harvest wheat`）。
@@ -66,44 +110,16 @@
   4. **物品拾取**：收割產生的掉落物由 `PickupItem` 自動撿入背包。
   5. **完成回報**：範圍內無成熟作物或達 20 分鐘工時後，透過 `TaskSessionManager` 回報收割數量並切換回 `IDLE`。
 
-### 4.2.3 交付與修改檔案
+### 4.3.3 交付與修改檔案
 - `src/perception.ts`：新增 `getMatureCrop(rallyPoint, maxRadius, cropType)`。
 - `src/actions/farming.ts`：擴充 `harvestCrop` Action Adapter。
 - `src/actions/index.ts`、`src/command-controller.ts`、`src/sessions/task-session-manager.ts`、`src/bt/subtrees/work.ts`：註冊 `HarvestCrop` 與 `!harvest` 指令。
 - `test/unit/farming-harvest.test.ts`：單元測試驗證成熟度判斷、跳過未熟作物、採收與原地補種。
 
-### 4.2.4 驗收門檻
+### 4.3.4 驗收門檻
 - [ ] 僅收割成熟作物（age 7 / age 3），跳過未成熟作物。
 - [ ] 若背包有種子，收割後能原地自動補種。
 - [ ] 區域內無成熟作物或工時結束時回報成果並切換為 `IDLE`。
-
----
-
-## Stage 4.3: 夜晚自主回 Spawn 睡覺與起床作息 (Nightly Autonomous Sleep)
-
-### 4.3.1 階段目標
-當 Bot 處於 `IDLE` 狀態時，於遊戲夜晚（或雷雨天）自動前往已綁定的 Spawn 點或附近床鋪進行睡覺，天亮時自然醒來起床並恢復 `IDLE` 狀態。
-
-### 4.3.2 規格與行為定義
-- **觸發條件**：
-  - 當前意圖模式為 `IDLE`（無其他進行中任務）。
-  - 已知有效的床鋪座標（`world.spawnPoint` 或 `world.nearbyBed`）。
-  - 時間處於夜晚（`timeOfDay >= 12541 && timeOfDay <= 23458`）或雷雨天。
-- **就寢與甦醒流程**：
-  1. 觸發 `SleepAtBed`（所需資源 `['MOVE', 'LOOK', 'HAND']`）。
-  2. 導航至床鋪旁（`GoalNear(bedPos, 1.8)`），呼叫 `bot.sleep(bedBlock)`。
-  3. **遇襲醒來**：睡眠中若受到傷害（`tookDamageRecently`）或周圍出現威脅，立即呼叫 `bot.wake()`，交由 `Combat (80)` 或 `Retreat (100)` 搶佔。
-  4. **天亮醒來**：天亮時自動醒來並發送 `Good morning!`，維持 `IDLE`。
-
-### 4.3.3 交付與修改檔案
-- `src/actions/sleep.ts`：實作 `SleepAtBed` Adapter（取消時若正在睡覺則呼叫 `bot.wake()`）。
-- `src/bt/subtrees/maintenance.ts` 或 `work.ts`：掛載 `SleepAtBed` 決策節點。
-- `test/unit/sleep-cycle.test.ts`：單元測試驗證夜間判斷、就寢、遇襲甦醒與天亮起床。
-
-### 4.3.4 驗收門檻
-- [ ] 白天不觸發睡覺；夜晚且 `IDLE` 時自動走回床鋪入睡。
-- [ ] 睡覺中遭遇攻擊能立即呼叫 `bot.wake()` 並切換戰鬥/撤退。
-- [ ] 天亮時自然甦醒，不卡死在睡眠狀態。
 
 ---
 
@@ -139,7 +155,7 @@
 
 | 測試編號 | 測試場景描述 | 預期行為與驗收指標 |
 | :--- | :--- | :--- |
-| **S4-E2E-01** | **農田安全播種與防踩踏 (`!farm`)** | 在農田上播種，移動全程不跳躍，確認上方方塊變為作物或種子減少才計數，可連續多輪執行。 |
-| **S4-E2E-02** | **成熟作物收割與原地補種 (`!harvest`)** | 混合不同生長階段作物，僅收割成熟作物（age 7 / age 3），並在原地重新播種。 |
-| **S4-E2E-03** | **夜間自動回床就寢與遇襲甦醒** | IDLE 下夜晚降臨自動走回床鋪入睡；遭受攻擊立刻醒來反擊；天亮自然醒來。 |
+| **S4-E2E-01** | **床鋪設定與夜晚就寢作息 (`!setbed` / `SleepAtBed`)** | 支援 `!setbed` 搜尋半徑 10 格床鋪並綁定；未設出生點不觸發睡眠；夜晚自動就寢、受襲即時醒來反擊、天亮甦醒問候。 |
+| **S4-E2E-02** | **農田安全播種與防踩踏 (`!farm`)** | 在農田上播種，移動全程不跳躍，確認上方方塊變為作物或種子減少才計數，可連續多輪執行。 |
+| **S4-E2E-03** | **成熟作物收割與原地補種 (`!harvest`)** | 混合不同生長階段作物，僅收割成熟作物（age 7 / age 3），並在原地重新播種。 |
 | **S4-E2E-04** | **箱子註冊、破壞自動註銷與存取 (`!box`)** | 註冊 `box_01` 並存取物品；模擬箱子被挖除時自動移除 `box_01` 並發出提醒。 |

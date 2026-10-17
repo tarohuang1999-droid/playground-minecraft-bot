@@ -4,7 +4,7 @@ import type { Runner } from './bt/runner.ts';
 import { parseCommand } from './commands.ts';
 import { workConfig } from './config/index.ts';
 import type { Logger } from './logger.ts';
-import type { createPerception } from './perception.ts';
+import { findNearbyBed, type createPerception } from './perception.ts';
 import type { TaskSessionManager } from './sessions/task-session-manager.ts';
 
 export interface CommandInventoryItem {
@@ -26,6 +26,9 @@ export interface CommandBotPort {
     items?(): CommandInventoryItem[];
     emptySlotCount?(): number;
   };
+  findBlock?(options: unknown): unknown;
+  activateBlock?(block: unknown): Promise<void>;
+  blocks?: Record<string, unknown> | undefined;
 }
 
 export interface CommandControllerDeps {
@@ -95,6 +98,38 @@ export function createCommandController(deps: CommandControllerDeps) {
       const msg = `Base set to (${basePos.x.toFixed(1)}, ${basePos.y.toFixed(1)}, ${basePos.z.toFixed(1)})`;
       logger?.info(`[base] ${msg}`);
       chat.enqueue(msg);
+      runner.requestUrgentTick();
+      return;
+    }
+
+    if (event.type === 'set_bed') {
+      const currentWorld = perception.sample();
+      const center = bot.entity?.position ?? currentWorld.self.position;
+      const bed = findNearbyBed(bot, 10, center);
+      if (!bed || !bed.position) {
+        logger?.info('[chat] !setbed: no bed found within 10 blocks');
+        chat.enqueue('沒看到');
+        runner.requestUrgentTick();
+        return;
+      }
+      const bedPos = {
+        x: Math.round(bed.position.x * 10) / 10,
+        y: Math.round(bed.position.y * 10) / 10,
+        z: Math.round(bed.position.z * 10) / 10,
+      };
+      perception.setSpawnPoint(bedPos);
+      sample();
+      const msg = `Spawn point set to (${bedPos.x.toFixed(1)}, ${bedPos.y.toFixed(1)}, ${bedPos.z.toFixed(1)})`;
+      logger?.info(`[spawn] ${msg}`);
+      chat.enqueue(msg);
+      if (typeof bot.activateBlock === 'function') {
+        const dist = Math.hypot(bedPos.x - center.x, bedPos.y - center.y, bedPos.z - center.z);
+        if (dist <= 2.5) {
+          bot.activateBlock(bed).catch(err => {
+            logger?.warn('[spawn] activateBlock error: ' + err);
+          });
+        }
+      }
       runner.requestUrgentTick();
       return;
     }

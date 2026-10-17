@@ -113,6 +113,9 @@ export interface PerceptionSource {
   entity: VisibleEntity;
   health: number;
   food: number;
+  time?: { timeOfDay?: number };
+  isRaining?: boolean;
+  isSleeping?: boolean;
   entities: Record<string, VisibleEntity>;
   players: Record<string, { entity?: VisibleEntity; username?: string }>;
   inventory: {
@@ -199,6 +202,38 @@ export function isAvailableBed(b: any): boolean {
   return true;
 }
 
+export function findNearbyBed(bot: any, maxDistance = 10, center?: Position): any | null {
+  const centerPos = center ?? bot.entity?.position;
+  if (!centerPos) return null;
+
+  if (typeof bot.findBlock === 'function') {
+    const point = new Vec3(centerPos.x, centerPos.y, centerPos.z);
+    const bedBlock = bot.findBlock({
+      matching: (b: any) => isAvailableBed(b),
+      maxDistance,
+      point,
+    });
+    if (bedBlock) return bedBlock;
+  }
+
+  if (bot.blocks) {
+    for (const b of Object.values(bot.blocks as Record<string, any>)) {
+      if (isAvailableBed(b) && b?.position) {
+        const d = Math.hypot(
+          centerPos.x - b.position.x,
+          centerPos.y - b.position.y,
+          centerPos.z - b.position.z
+        );
+        if (d <= maxDistance) {
+          return b;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export interface PerceptionOptions {
   now?: (() => number) | undefined;
   storagePath?: string | undefined;
@@ -210,7 +245,7 @@ export function createPerception(
   options: PerceptionOptions = {}
 ) {
   let lastHealth = bot.health;
-  let lastDamageTime = 0;
+  let lastDamageTime = -10000;
   const dynamicThreats = new Map<number, DynamicHostileTarget>();
 
   const initialSaved = options.storagePath
@@ -333,6 +368,9 @@ export function createPerception(
       world.spawnPoint = currentSpawnPoint ? { ...currentSpawnPoint } : null;
       world.bedNeedsRefresh = bedNeedsRefresh;
       world.nearbyBed = null;
+      world.timeOfDay = bot.time?.timeOfDay ?? 0;
+      world.isRaining = Boolean(bot.isRaining);
+      world.isSleeping = Boolean(bot.isSleeping);
 
       // Stage 13 / SetSpawn 依使用者需求：先改成 set base 才觸發，先註解 idle 自動執行
       const hasOwner = !!owner && owner.trim().length > 0;

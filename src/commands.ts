@@ -5,6 +5,7 @@ export type CommandEvent =
   | { type: 'intent'; mode: IntentState['mode'] }
   | { type: 'status' }
   | { type: 'set_base' }
+  | { type: 'set_bed' }
   | { type: 'come' }
   | { type: 'set_dig'; enabled: boolean }
   | { type: 'set_bridge'; enabled: boolean }
@@ -32,6 +33,7 @@ export function parseCommand(
     if (cmd === 'stop' || cmd === 'unfollow') return { type: 'intent', mode: 'STAY' };
     if (cmd === 'status' || cmd === 'state') return { type: 'status' };
     if (cmd === 'base') return { type: 'set_base' };
+    if (cmd === 'setbed' || cmd === 'set_bed') return { type: 'set_bed' };
     if (cmd === 'come') return { type: 'come' };
     if (cmd === 'return') return { type: 'intent', mode: 'RETURN' };
   }

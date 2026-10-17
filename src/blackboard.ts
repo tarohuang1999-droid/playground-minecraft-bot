@@ -31,6 +31,9 @@ export interface WorldState {
   spawnPoint: Position | null;
   bedNeedsRefresh: boolean;
   nearbyBed: Position | null;
+  timeOfDay: number;
+  isRaining: boolean;
+  isSleeping: boolean;
   entities: ObservedEntity[];
   threats: ObservedEntity[];
   nearbyDrops: Array<ObservedEntity & { itemName: string }>;
@@ -99,6 +102,9 @@ export function createWorld(master: string = ''): WorldState {
     spawnPoint: null,
     bedNeedsRefresh: false,
     nearbyBed: null,
+    timeOfDay: 0,
+    isRaining: false,
+    isSleeping: false,
     entities: [],
     threats: [],
     nearbyDrops: [],

@@ -11,6 +11,8 @@ import { createFarming } from './farming.ts';
 import { createHunting, type HuntingBot } from './hunting.ts';
 import { createInventoryAdapters, type InventoryBot } from './inventory.ts';
 import { createNavigation, type NavigationBot } from './navigation.ts';
+import { createSleepAdapter, type SleepBot } from './sleep.ts';
+import { createSetBedAdapter, type SetBedBot } from './bed.ts';
 
 export interface ActionBotPort extends PerceptionSource {
   pathfinder?: NavigationBot['pathfinder'];
@@ -174,10 +176,35 @@ export function createActionAdapters(bot: ActionBotPort, deps: CreateActionAdapt
     EquipBest: inventory.equipBest,
   };
 
+  const sleepAdapter = createSleepAdapter(bot as unknown as SleepBot, logger, {
+    chat,
+    onGoodMorning: () => {
+      enqueueEvent({ type: 'intent', mode: 'IDLE' });
+      requestUrgentTick();
+    },
+  });
+
+  const setBedAdapter = createSetBedAdapter(bot as unknown as SetBedBot, logger, {
+    onSpawnSet: (pos: Position) => {
+      perception.setSpawnPoint(pos);
+      const msg = `Spawn point set to (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`;
+      logger?.info(`[spawn] ${msg}`);
+      chat.enqueue(msg);
+      sample();
+      requestUrgentTick();
+    },
+    onNoBedFound: () => {
+      chat.enqueue('沒看到');
+      requestUrgentTick();
+    },
+  });
+
   const adapters: AdapterRegistry = {
     Idle: () => ({ start() {}, cancel() {} }),
     Chat: chat.adapter,
     Combat: combat,
+    SleepAtBed: sleepAdapter,
+    SetBed: setBedAdapter,
     ...navigationAdapters,
     ...farmingAdapters,
     ...huntingAdapters,

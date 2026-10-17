@@ -45,6 +45,8 @@ export const ACTION_POLICY = {
   NormalFollow: { mode: 'FOLLOW', priority: 5, requiredResources: ['MOVE', 'LOOK'] },
   EquipBest: { mode: 'MAINTENANCE', priority: 15, requiredResources: ['HAND', 'INVENTORY'] },
   SetSpawn: { mode: 'MAINTENANCE', priority: 15, requiredResources: ['MOVE', 'LOOK', 'HAND'] },
+  SetBed: { mode: 'MAINTENANCE', priority: 15, requiredResources: ['MOVE', 'LOOK', 'HAND'] },
+  SleepAtBed: { mode: 'MAINTENANCE', priority: 15, requiredResources: ['MOVE', 'LOOK', 'HAND'] },
   Chat: { mode: 'MAINTENANCE', priority: 10, requiredResources: ['VOICE'] },
   Idle: { mode: 'IDLE', priority: 0, requiredResources: [] },
 } as const satisfies Record<
