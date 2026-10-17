@@ -14,7 +14,8 @@ export interface WorkSubtreeOptions {
     | ((
         rallyPoint: Position,
         maxRadius: number,
-        targetAnimal?: string | null
+        targetAnimal?: string | null,
+        currentTargetId?: number | null
       ) => { entityId: number; name: string; position: Position; distance: number } | null)
     | undefined;
 }
@@ -226,37 +227,55 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !available.has('FarmPlant') || !isFarmingActive(s) }
   );
 
+  let farmingFinishedTriggered = false;
   const isFarmingFinished = (s: BlackboardSnapshot) => canFarm(s) && !isFarmingActive(s);
 
   const farmFinish = guard(
     'FarmFinish-ready',
     s => isFarmingFinished(s),
     action('FarmFinish', s => {
-      const workArea = s.intent.workArea!;
-      const elapsed = s.observedAt - workArea.startedAt;
-      const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
-      options?.onFarmingFinished?.(reason);
+      if (!farmingFinishedTriggered) {
+        farmingFinishedTriggered = true;
+        const workArea = s.intent.workArea!;
+        const elapsed = s.observedAt - workArea.startedAt;
+        const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
+        options?.onFarmingFinished?.(reason);
+      }
       return {
         actionType: 'Idle',
         targetId: null,
         params: {},
       };
     }),
-    { exit: () => true }
+    {
+      exit: s => {
+        if (!canFarm(s)) farmingFinishedTriggered = false;
+        return true;
+      },
+    }
   );
 
   const canHunt = (s: BlackboardSnapshot) =>
     s.world.self.isAlive && s.intent.mode === 'HUNT' && !!s.intent.workArea;
+
+  const getActiveHuntTargetId = (s: BlackboardSnapshot): number | null => {
+    const activeHuntRun = Object.values(s.runtime.activeRuns).find(
+      r => r.actionType === 'HuntAnimal' && r.status === 'RUNNING'
+    );
+    return activeHuntRun?.targetId ?? null;
+  };
 
   const isHuntingActive = (s: BlackboardSnapshot) => {
     if (!canHunt(s)) return false;
     const workArea = s.intent.workArea!;
     const elapsed = s.observedAt - workArea.startedAt;
     if (elapsed >= workArea.maxDurationMs) return false;
+    const currentTargetId = getActiveHuntTargetId(s);
     const animal = options?.getHuntableAnimal?.(
       workArea.rallyPoint,
       workArea.maxRadius,
-      workArea.targetAnimal
+      workArea.targetAnimal,
+      currentTargetId
     );
     return animal !== null && animal !== undefined;
   };
@@ -266,10 +285,12 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     s => available.has('HuntAnimal') && isHuntingActive(s),
     action('HuntAnimal', s => {
       const workArea = s.intent.workArea!;
+      const currentTargetId = getActiveHuntTargetId(s);
       const animal = options?.getHuntableAnimal?.(
         workArea.rallyPoint,
         workArea.maxRadius,
-        workArea.targetAnimal
+        workArea.targetAnimal,
+        currentTargetId
       );
       return {
         actionType: 'HuntAnimal',
@@ -286,23 +307,32 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !available.has('HuntAnimal') || !isHuntingActive(s) }
   );
 
+  let huntingFinishedTriggered = false;
   const isHuntingFinished = (s: BlackboardSnapshot) => canHunt(s) && !isHuntingActive(s);
 
   const huntFinish = guard(
     'HuntFinish-ready',
     s => isHuntingFinished(s),
     action('HuntFinish', s => {
-      const workArea = s.intent.workArea!;
-      const elapsed = s.observedAt - workArea.startedAt;
-      const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
-      options?.onHuntingFinished?.(reason);
+      if (!huntingFinishedTriggered) {
+        huntingFinishedTriggered = true;
+        const workArea = s.intent.workArea!;
+        const elapsed = s.observedAt - workArea.startedAt;
+        const reason = elapsed >= workArea.maxDurationMs ? 'TIMEOUT' : 'COMPLETED';
+        options?.onHuntingFinished?.(reason);
+      }
       return {
         actionType: 'Idle',
         targetId: null,
         params: {},
       };
     }),
-    { exit: () => true }
+    {
+      exit: s => {
+        if (!canHunt(s)) huntingFinishedTriggered = false;
+        return true;
+      },
+    }
   );
 
   return reactiveSelector('work', [

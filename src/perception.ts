@@ -552,7 +552,8 @@ export function createPerception(
     getHuntableAnimal(
       rallyPoint: Position,
       maxRadius: number = 25,
-      targetAnimal?: string | null
+      targetAnimal?: string | null,
+      currentTargetId?: number | null
     ): { entityId: number; name: string; position: Position; distance: number } | null {
       const now = getNow();
       for (const [id, exp] of animalCooldowns.entries()) {
@@ -562,7 +563,14 @@ export function createPerception(
         const exp = animalCooldowns.get(id);
         return exp !== undefined && now < exp;
       };
-      return findHuntableAnimal(bot, rallyPoint, maxRadius, targetAnimal, isCooldown);
+      return findHuntableAnimal(
+        bot,
+        rallyPoint,
+        maxRadius,
+        targetAnimal,
+        isCooldown,
+        currentTargetId
+      );
     },
   };
 }
@@ -629,7 +637,8 @@ export function findHuntableAnimal(
   rallyPoint: Position,
   maxRadius: number = 25,
   targetAnimal?: string | null,
-  isCooldown?: (entityId: number) => boolean
+  isCooldown?: (entityId: number) => boolean,
+  currentTargetId?: number | null
 ): { entityId: number; name: string; position: Position; distance: number } | null {
   const origin = bot.entity?.position;
   if (!origin) return null;
@@ -638,6 +647,34 @@ export function findHuntableAnimal(
     ? [targetAnimal.toLowerCase()]
     : (workConfig.huntTargetAnimals as readonly string[]);
 
+  // Target retention: if currently hunting an animal that is still valid and in range, stick with it
+  if (currentTargetId != null && bot.entities) {
+    const retained = (bot.entities as any)[currentTargetId];
+    if (
+      retained &&
+      retained.position &&
+      retained.isValid !== false &&
+      (retained as any).isDead !== true &&
+      (retained.health === undefined || retained.health > 0) &&
+      (!isCooldown || !isCooldown(currentTargetId))
+    ) {
+      const retainedName = (retained.name ?? '').toLowerCase();
+      if (validTargets.includes(retainedName)) {
+        const dx = retained.position.x - rallyPoint.x;
+        const dz = retained.position.z - rallyPoint.z;
+        if (Math.hypot(dx, dz) <= maxRadius) {
+          const d = distance(origin, retained.position);
+          return {
+            entityId: currentTargetId,
+            name: retainedName,
+            position: position(retained.position),
+            distance: d,
+          };
+        }
+      }
+    }
+  }
+
   let best: { entityId: number; name: string; position: Position; distance: number } | null = null;
   let minDistance = Infinity;
 
@@ -645,7 +682,7 @@ export function findHuntableAnimal(
   for (const entity of entities) {
     if (!entity?.position) continue;
     if (entity.id === bot.entity?.id) continue;
-    if ((entity as any).isValid === false) continue;
+    if ((entity as any).isValid === false || (entity as any).isDead === true) continue;
     const health = (entity as any).health;
     if (health !== undefined && health <= 0) continue;
 

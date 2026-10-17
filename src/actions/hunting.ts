@@ -50,7 +50,8 @@ export interface HuntingLogger {
 }
 
 export interface HuntingOptions {
-  onAnimalKilled?: ((animalName: string) => void) | undefined;
+  onAnimalAttacked?: ((entityId: number, animalName: string) => void) | undefined;
+  onAnimalKilled?: ((animalName: string, entityId: number) => void) | undefined;
   onAnimalEscaped?: ((entityId: number) => void) | undefined;
 }
 
@@ -62,6 +63,8 @@ export function createHunting(
   return {
     huntAnimal(request: ActionRequest): ActionAdapter {
       let active = true;
+      let hasAttacked = false;
+      let targetIsDead = false;
       let lastAttackTime = 0;
       let finishedResult: ActionResult | null = null;
       let targetName = 'animal';
@@ -74,24 +77,46 @@ export function createHunting(
       };
       const maxRadius: number = Number(request.params?.maxRadius ?? 25);
 
+      const onDead = (deadEntity: any) => {
+        if (deadEntity && deadEntity.id === targetId) {
+          targetIsDead = true;
+        }
+      };
+
+      if (typeof (bot as any).on === 'function') {
+        (bot as any).on('entityDead', onDead);
+      }
+
+      function cleanupListeners() {
+        if (typeof (bot as any).removeListener === 'function') {
+          (bot as any).removeListener('entityDead', onDead);
+        }
+      }
+
       return {
         async start(ctx: ActionContext): Promise<void | ActionResult> {
-          if (!ctx.isActive()) return;
+          if (!ctx.isActive()) {
+            cleanupListeners();
+            return;
+          }
           active = true;
           finishedResult = null;
 
           if (!bot.pathfinder) {
+            cleanupListeners();
             logger?.warn('[hunting] cannot hunt: pathfinder is not loaded');
             return { status: 'FAILURE', reason: 'Pathfinder is not loaded on bot' };
           }
 
           if (targetId === null) {
+            cleanupListeners();
             logger?.warn('[hunting] cannot hunt: targetId is null');
             return { status: 'FAILURE', reason: 'TargetId is null' };
           }
 
           const target = (bot.entities as any)[targetId];
           if (!target) {
+            cleanupListeners();
             logger?.warn(`[hunting] target ${targetId} not found in bot.entities`);
             return { status: 'FAILURE', reason: 'Target animal not found' };
           }
@@ -125,7 +150,10 @@ export function createHunting(
             }
           }
 
-          if (!active || !ctx.isActive()) return;
+          if (!active || !ctx.isActive()) {
+            cleanupListeners();
+            return;
+          }
 
           // 2. Set movement goal towards animal
           try {
@@ -145,19 +173,35 @@ export function createHunting(
           if (!active || !ctx.isActive()) return;
           if (finishedResult) return finishedResult;
 
-          if (targetId === null) return { status: 'FAILURE', reason: 'TargetId is null' };
+          if (targetId === null) {
+            cleanupListeners();
+            return { status: 'FAILURE', reason: 'TargetId is null' };
+          }
 
           const target = (bot.entities as any)[targetId];
-          // Check if target died or despawned
-          if (
+          const isDeadOrGone =
+            targetIsDead ||
             !target ||
             target.isValid === false ||
-            (target.health !== undefined && target.health <= 0)
-          ) {
-            logger?.info(`[hunting] ${targetName} (id=${targetId}) is down`);
-            options.onAnimalKilled?.(targetName);
-            finishedResult = { status: 'SUCCESS' };
+            (target.health !== undefined && target.health <= 0);
+
+          // Check if target died or despawned
+          if (isDeadOrGone) {
+            cleanupListeners();
             bot.pathfinder?.setGoal(null);
+            if (hasAttacked) {
+              logger?.info(`[hunting] ${targetName} (id=${targetId}) is down`);
+              options.onAnimalKilled?.(targetName, targetId);
+              finishedResult = { status: 'SUCCESS' };
+            } else {
+              logger?.info(
+                `[hunting] target ${targetName} (id=${targetId}) disappeared or died without being attacked`
+              );
+              finishedResult = {
+                status: 'FAILURE',
+                reason: 'Target lost or died before attack',
+              };
+            }
             return finishedResult;
           }
 
@@ -165,6 +209,7 @@ export function createHunting(
           const dx = target.position.x - rallyPoint.x;
           const dz = target.position.z - rallyPoint.z;
           if (Math.hypot(dx, dz) > maxRadius) {
+            cleanupListeners();
             logger?.info(
               `[hunting] target ${targetName} (id=${targetId}) fled outside rally radius (${maxRadius}), aborting chase`
             );
@@ -198,6 +243,8 @@ export function createHunting(
             if (typeof bot.attack === 'function') {
               try {
                 bot.attack(target);
+                hasAttacked = true;
+                options.onAnimalAttacked?.(targetId, targetName);
               } catch (err) {
                 logger?.warn(`[hunting] attack error: ${err}`);
               }
@@ -207,6 +254,7 @@ export function createHunting(
 
         cancel(): void {
           active = false;
+          cleanupListeners();
           bot.pathfinder?.setGoal(null);
         },
 

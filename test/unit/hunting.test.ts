@@ -216,7 +216,6 @@ test('hunting adapter: approaches animal, auto-equips best weapon, attacks when 
   let goalSet: any = null;
   const equipCalls: any[] = [];
   const attackCalls: any[] = [];
-  let killedAnimal: string | null = null;
 
   const fakeBot: any = {
     entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
@@ -250,9 +249,11 @@ test('hunting adapter: approaches animal, auto-equips best weapon, attacks when 
     },
   };
 
+  let killedAnimal: any = null;
+
   const hunting = createHunting(fakeBot, {
-    onAnimalKilled: name => {
-      killedAnimal = name;
+    onAnimalKilled: (name, id) => {
+      killedAnimal = { name, id };
     },
   });
 
@@ -304,7 +305,8 @@ test('hunting adapter: approaches animal, auto-equips best weapon, attacks when 
   // Next tick detects target died
   const finishResult = adapter.update!(ctx);
   assert.equal(finishResult?.status, 'SUCCESS');
-  assert.equal(killedAnimal, 'cow');
+  assert.equal(killedAnimal?.name, 'cow');
+  assert.equal(killedAnimal?.id, 55);
 });
 
 test('hunting adapter: aborts chase when animal flees beyond rally point radius', async () => {
@@ -406,4 +408,350 @@ test('hunting priority: HuntAnimal priority is 40 and preempts EquipBest (15)', 
     calculateActionPriority('Combat') > calculateActionPriority('HuntAnimal'),
     'Combat (80) must preempt HuntAnimal (40) when attacked'
   );
+});
+
+test('hunting adapter: does not count kill if target despawns or disappears without being attacked', async () => {
+  let killedAnimal: { name: string; id: number } | null = null;
+  const fakeBot: any = {
+    entity: { id: 1, position: { x: 0, y: 64, z: 0 } },
+    pathfinder: { setGoal() {} },
+    entities: {
+      88: {
+        id: 88,
+        name: 'pig',
+        position: { x: 10, y: 64, z: 0 }, // far away (dist 10 > 3.0), cannot attack yet
+        isValid: true,
+      },
+    },
+    inventory: { items: () => [] },
+  };
+
+  const hunting = createHunting(fakeBot, {
+    onAnimalKilled: (name, id) => {
+      killedAnimal = { name, id };
+    },
+  });
+
+  const request: ActionRequest = {
+    nodeId: 'HuntAnimal',
+    runId: 'hunt-despawn-run',
+    actionType: 'HuntAnimal',
+    targetId: 88,
+    priority: 40,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { rallyX: 0, rallyY: 64, rallyZ: 0, maxRadius: 25 },
+  };
+
+  const board = createBlackboard('owner');
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = hunting.huntAnimal(request);
+  await adapter.start(ctx);
+
+  // Target despawns before bot ever attacks
+  delete fakeBot.entities[88];
+
+  const result = adapter.update!(ctx);
+  assert.equal(result?.status, 'FAILURE');
+  assert.equal(result?.reason, 'Target lost or died before attack');
+  assert.equal(killedAnimal, null, 'Must NOT count as a kill if never attacked');
+});
+
+test('hunting adapter: counts kill when entityDead event fires after attack', async () => {
+  let killedAnimal: any = null;
+  class FakeBotWithEvents extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    pathfinder = { setGoal() {} };
+    entities: Record<string | number, any> = {
+      99: {
+        id: 99,
+        name: 'cow',
+        position: { x: 1, y: 64, z: 0 }, // in attack range
+        isValid: true,
+      },
+    };
+    inventory = { items: () => [] };
+    attack() {}
+    lookAt = async () => {};
+  }
+
+  const fakeBot = new FakeBotWithEvents();
+  const hunting = createHunting(fakeBot as any, {
+    onAnimalKilled: (name, id) => {
+      killedAnimal = { name, id };
+    },
+  });
+
+  const request: ActionRequest = {
+    nodeId: 'HuntAnimal',
+    runId: 'hunt-entitydead-run',
+    actionType: 'HuntAnimal',
+    targetId: 99,
+    priority: 40,
+    requiredResources: ['MOVE', 'LOOK', 'HAND', 'INVENTORY'],
+    params: { rallyX: 0, rallyY: 64, rallyZ: 0, maxRadius: 25 },
+  };
+
+  const board = createBlackboard('owner');
+  const ctx: ActionContext = {
+    request,
+    token: 1,
+    generation: 0,
+    signal: new AbortController().signal,
+    isActive: () => true,
+    getSnapshot: () => board.snapshot(0),
+  };
+
+  const adapter = hunting.huntAnimal(request);
+  await adapter.start(ctx);
+
+  // Bot attacks
+  adapter.update!(ctx);
+
+  // Server sends entityDead
+  fakeBot.emit('entityDead', { id: 99 });
+
+  const result = adapter.update!(ctx);
+  assert.equal(result?.status, 'SUCCESS');
+  assert.equal(killedAnimal?.name, 'cow');
+  assert.equal(killedAnimal?.id, 99);
+});
+
+test('hunting BT: retains active hunting target even if another animal moves slightly closer', () => {
+  let searchedTargetId: number | null | undefined;
+  const tree = createCompanionTree(new Set(['HuntAnimal', 'Idle']), {
+    getHuntableAnimal: (_rally, _radius, _target, currentTargetId) => {
+      searchedTargetId = currentTargetId;
+      // Retain target 100 if passed, else pick closest 101
+      if (currentTargetId === 100) {
+        return { entityId: 100, name: 'cow', position: { x: 5, y: 64, z: 0 }, distance: 5 };
+      }
+      return { entityId: 101, name: 'sheep', position: { x: 2, y: 64, z: 0 }, distance: 2 };
+    },
+  });
+
+  const board = createBlackboard('owner');
+  const now = 1000;
+  board.setIntent('HUNT', now, null, {
+    rallyPoint: { x: 0, y: 64, z: 0 },
+    maxRadius: 25,
+    startedAt: now,
+    maxDurationMs: 1_200_000,
+  });
+
+  const world = createWorld('owner');
+  world.self.isAlive = true;
+  world.self.position = { x: 0, y: 64, z: 0 };
+  board.setWorld(world);
+
+  board.setRuntime({
+    activeRuns: {
+      'hunt-run': {
+        runId: 'hunt-run',
+        actionType: 'HuntAnimal',
+        targetId: 100,
+        startedAt: now,
+        status: 'RUNNING',
+      },
+    },
+    results: {},
+    cooldowns: {},
+    lockedResources: {
+      MOVE: 'hunt-run',
+      LOOK: 'hunt-run',
+      HAND: null,
+      INVENTORY: null,
+      VOICE: null,
+    },
+  });
+
+  const snapshot = board.snapshot(now);
+  const result = tree.tick(snapshot);
+
+  assert.equal(searchedTargetId, 100, 'getHuntableAnimal should receive active targetId 100');
+  const huntReq = result.requests.find(r => r.actionType === 'HuntAnimal');
+  assert.equal(
+    huntReq?.targetId,
+    100,
+    'Should retain active target 100 rather than switching to 101'
+  );
+});
+
+test('hunting BT & bot: onHuntingFinished announces chat completion exactly once across multiple ticks', () => {
+  let fakeTime = 1000;
+  class MockBot extends EventEmitter {
+    entity = { id: 1, position: { x: 10, y: 64, z: 20 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {
+      owner: { entity: { id: 2, position: { x: 0, y: 64, z: 0 } } },
+    };
+    entities: Record<string, any> = {};
+    inventory = {
+      emptySlotCount: () => 30,
+      items: () => [],
+      slots: [],
+    };
+    pathfinder = { setGoal() {}, stop() {}, setMovements() {} };
+    registry = { blocksByName: {}, itemsByName: {} };
+    chatLog: string[] = [];
+    chat(msg: string) {
+      this.chatLog.push(msg);
+    }
+  }
+
+  const bot = new MockBot();
+  const companion = attachCompanion(bot as any, 'owner', { now: () => fakeTime });
+
+  bot.emit('spawn');
+  bot.emit('chat', 'owner', '!hunt');
+  bot.emit('physicsTick');
+
+  // No animals around, trigger multiple ticks with elapsed time
+  fakeTime += 1500;
+  bot.emit('physicsTick');
+  fakeTime += 1500;
+  bot.emit('physicsTick');
+  fakeTime += 1500;
+  bot.emit('physicsTick');
+
+  const completionMessages = bot.chatLog.filter(m => m.startsWith('Hunting completed.'));
+  assert.equal(
+    completionMessages.length,
+    1,
+    `Should announce completion exactly once, got: ${completionMessages.length}`
+  );
+
+  companion.dispose();
+});
+
+test('hunting bot integration: server entityDead event caches kill for attacked animal and presents it on completion', () => {
+  let fakeTime = 1000;
+  class MockBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {
+      owner: { entity: { id: 2, position: { x: 0, y: 64, z: 0 } } },
+    };
+    entities: Record<string, any> = {
+      42: {
+        id: 42,
+        name: 'cow',
+        position: { x: 1, y: 64, z: 0 }, // in melee range
+        isValid: true,
+      },
+    };
+    inventory = {
+      emptySlotCount: () => 30,
+      items: () => [],
+      slots: [],
+    };
+    pathfinder = { setGoal() {}, stop() {}, setMovements() {} };
+    registry = { blocksByName: {}, itemsByName: {} };
+    chatLog: string[] = [];
+    chat(msg: string) {
+      this.chatLog.push(msg);
+    }
+    attack() {}
+    lookAt = async () => {};
+  }
+
+  const bot = new MockBot();
+  const companion = attachCompanion(bot as any, 'owner', { now: () => fakeTime });
+
+  bot.emit('spawn');
+  bot.emit('chat', 'owner', '!hunt');
+  bot.emit('physicsTick'); // starts HuntAnimal
+  bot.emit('physicsTick'); // updates HuntAnimal, performs attack on cow 42
+
+  // Server fires entityDead for attacked cow 42
+  bot.emit('entityDead', { id: 42, name: 'cow' });
+  delete bot.entities[42];
+
+  // Advance time past chat rate limit and tick to trigger completion
+  fakeTime += 1500;
+  bot.emit('physicsTick'); // finishes hunting, enqueues chat
+  fakeTime += 1500;
+  bot.emit('physicsTick'); // sends chat
+
+  const completionMessages = bot.chatLog.filter(m =>
+    m.includes('Hunting completed. Hunted 1 animals.')
+  );
+  assert.equal(
+    completionMessages.length,
+    1,
+    `Should announce Hunted 1 animals, got chat: ${JSON.stringify(bot.chatLog)}`
+  );
+
+  companion.dispose();
+});
+
+test('hunting bot integration: server entityDead for unattacked animal does NOT count', () => {
+  let fakeTime = 1000;
+  class MockBot extends EventEmitter {
+    entity = { id: 1, position: { x: 0, y: 64, z: 0 } };
+    health = 20;
+    food = 20;
+    players: Record<string, any> = {
+      owner: { entity: { id: 2, position: { x: 0, y: 64, z: 0 } } },
+    };
+    entities: Record<string, any> = {
+      43: {
+        id: 43,
+        name: 'pig',
+        position: { x: 20, y: 64, z: 0 }, // far away (dist 20 > 3.0), cannot attack
+        isValid: true,
+      },
+    };
+    inventory = {
+      emptySlotCount: () => 30,
+      items: () => [],
+      slots: [],
+    };
+    pathfinder = { setGoal() {}, stop() {}, setMovements() {} };
+    registry = { blocksByName: {}, itemsByName: {} };
+    chatLog: string[] = [];
+    chat(msg: string) {
+      this.chatLog.push(msg);
+    }
+    attack() {}
+    lookAt = async () => {};
+  }
+
+  const bot = new MockBot();
+  const companion = attachCompanion(bot as any, 'owner', { now: () => fakeTime });
+
+  bot.emit('spawn');
+  bot.emit('chat', 'owner', '!hunt');
+  bot.emit('physicsTick'); // starts HuntAnimal
+  bot.emit('physicsTick'); // updates HuntAnimal (pig is at dist 20 > 3.0, cannot attack)
+
+  // Another entity (e.g. killed by wolf/player) dies without bot ever attacking
+  bot.emit('entityDead', { id: 43, name: 'pig' });
+  delete bot.entities[43];
+
+  // Advance time past chat rate limit and tick to trigger completion
+  fakeTime += 1500;
+  bot.emit('physicsTick'); // finishes hunting, enqueues chat
+  fakeTime += 1500;
+  bot.emit('physicsTick'); // sends chat
+
+  const completionMessages = bot.chatLog.filter(m =>
+    m.includes('Hunting completed. Hunted 0 animals.')
+  );
+  assert.equal(
+    completionMessages.length,
+    1,
+    `Should announce Hunted 0 animals for unattacked mob, got chat: ${JSON.stringify(bot.chatLog)}`
+  );
+
+  companion.dispose();
 });

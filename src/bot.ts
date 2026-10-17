@@ -134,13 +134,32 @@ export function attachCompanion(
         FarmPlant: farming.farmPlant,
       }
     : {};
-  let huntedAnimalsCount = 0;
+  const huntingSession = {
+    huntedIds: new Set<number>(),
+    attackedIds: new Set<number>(),
+    activeTargetId: null as number | null,
+    finishedReported: false,
+  };
   const hunting = createHunting(
     bot as any,
     {
-      onAnimalKilled: animalName => {
-        huntedAnimalsCount++;
-        logger?.info(`[hunting] killed ${animalName} (total: ${huntedAnimalsCount})`);
+      onAnimalAttacked: (entityId, animalName) => {
+        huntingSession.attackedIds.add(entityId);
+        huntingSession.activeTargetId = entityId;
+        logger?.info(`[hunting] attacked ${animalName} (id=${entityId})`);
+      },
+      onAnimalKilled: (animalName, entityId) => {
+        if (huntingSession.huntedIds.has(entityId)) {
+          logger?.info(
+            `[hunting] animal ${entityId} already counted as killed, ignoring duplicate`
+          );
+          return;
+        }
+        huntingSession.huntedIds.add(entityId);
+        perception.markAnimalCooldown(entityId, 60_000);
+        logger?.info(
+          `[hunting] killed ${animalName} (id=${entityId}, session total: ${huntingSession.huntedIds.size})`
+        );
       },
       onAnimalEscaped: entityId => {
         perception.markAnimalCooldown(entityId, 30_000);
@@ -190,18 +209,23 @@ export function attachCompanion(
       }
       runner.requestUrgentTick();
     },
-    getHuntableAnimal: (rallyPoint, maxRadius, targetAnimal) =>
-      perception.getHuntableAnimal(rallyPoint, maxRadius, targetAnimal),
+    getHuntableAnimal: (rallyPoint, maxRadius, targetAnimal, currentTargetId) =>
+      perception.getHuntableAnimal(rallyPoint, maxRadius, targetAnimal, currentTargetId),
     onHuntingFinished: reason => {
-      logger?.info(`[hunting] shift finished (${reason}), total hunted: ${huntedAnimalsCount}`);
+      if (huntingSession.finishedReported) return;
+      huntingSession.finishedReported = true;
+      const count = huntingSession.huntedIds.size;
+      logger?.info(`[hunting] shift finished (${reason}), total hunted: ${count}`);
       runner.enqueue({ type: 'intent', mode: 'IDLE' });
       if (reason === 'TIMEOUT') {
-        chat.enqueue(
-          `Hunting shift completed (1 day limit reached). Hunted ${huntedAnimalsCount} animals.`
-        );
+        chat.enqueue(`Hunting shift completed (1 day limit reached). Hunted ${count} animals.`);
       } else {
-        chat.enqueue(`Hunting completed. Hunted ${huntedAnimalsCount} animals.`);
+        chat.enqueue(`Hunting completed. Hunted ${count} animals.`);
       }
+      // Reset hunting session cache upon completion
+      huntingSession.huntedIds.clear();
+      huntingSession.attackedIds.clear();
+      huntingSession.activeTargetId = null;
       runner.requestUrgentTick();
     },
   });
@@ -243,6 +267,11 @@ export function attachCompanion(
     logger?.info('[lifecycle] bot reset/pause');
     recentArmSwings.clear();
     perception.clearDynamicThreats();
+    perception.clearAnimalCooldowns();
+    huntingSession.huntedIds.clear();
+    huntingSession.attackedIds.clear();
+    huntingSession.activeTargetId = null;
+    huntingSession.finishedReported = false;
     runner.pause();
     chat.reset();
   }
@@ -272,6 +301,38 @@ export function attachCompanion(
   function entitySwingArm(entity: any) {
     if (entity?.id != null) {
       recentArmSwings.set(entity.id, Date.now());
+    }
+  }
+  function entityDead(entity: any) {
+    if (entity?.id != null) {
+      perception.markAnimalCooldown(entity.id, 60_000);
+      if (
+        huntingSession.attackedIds.has(entity.id) ||
+        huntingSession.activeTargetId === entity.id
+      ) {
+        if (!huntingSession.huntedIds.has(entity.id)) {
+          huntingSession.huntedIds.add(entity.id);
+          const animalName = entity.name ?? entity.type ?? 'animal';
+          logger?.info(
+            `[hunting] server event entityDead confirmed kill for ${animalName} (id=${entity.id}, session total: ${huntingSession.huntedIds.size})`
+          );
+        }
+      }
+    }
+  }
+  function entityGone(entity: any) {
+    if (entity?.id != null) {
+      if (
+        (huntingSession.attackedIds.has(entity.id) ||
+          huntingSession.activeTargetId === entity.id) &&
+        !huntingSession.huntedIds.has(entity.id)
+      ) {
+        huntingSession.huntedIds.add(entity.id);
+        const animalName = entity.name ?? entity.type ?? 'animal';
+        logger?.info(
+          `[hunting] server event entityGone confirmed kill for ${animalName} (id=${entity.id}, session total: ${huntingSession.huntedIds.size})`
+        );
+      }
     }
   }
   function entityHurt(entity: any, source?: any) {
@@ -498,7 +559,10 @@ export function attachCompanion(
       const selfPos = currentWorld.self.position;
       const rallyPoint = { x: selfPos.x, y: selfPos.y, z: selfPos.z };
 
-      huntedAnimalsCount = 0;
+      huntingSession.huntedIds.clear();
+      huntingSession.attackedIds.clear();
+      huntingSession.activeTargetId = null;
+      huntingSession.finishedReported = false;
       perception.clearAnimalCooldowns();
 
       logger?.info(
@@ -542,6 +606,8 @@ export function attachCompanion(
   bot.on('physicsTick', physicsTick);
   bot.on('health', health);
   bot.on('entitySwingArm' as any, entitySwingArm as any);
+  bot.on('entityDead' as any, entityDead as any);
+  bot.on('entityGone' as any, entityGone as any);
   bot.on('entityHurt' as any, entityHurt as any);
   bot.on('chat', command);
   bot.on('whisper', command);
@@ -558,6 +624,8 @@ export function attachCompanion(
       bot.removeListener('physicsTick', physicsTick);
       bot.removeListener('health', health);
       bot.removeListener('entitySwingArm' as any, entitySwingArm as any);
+      bot.removeListener('entityDead' as any, entityDead as any);
+      bot.removeListener('entityGone' as any, entityGone as any);
       bot.removeListener('entityHurt' as any, entityHurt as any);
       bot.removeListener('chat', command);
       bot.removeListener('whisper', command);
