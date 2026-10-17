@@ -433,3 +433,108 @@ test('Stage 4.1 Rest subtree & survivalConfig: canSleep and shouldExitSleep unit
   assert.ok(sleepReq, 'SleepAtBed should be requested');
   assert.deepStrictEqual(sleepReq?.params, { x: 10, y: 64, z: 10 });
 });
+
+test('Stage 4.1 !sleep: without bed within 10 blocks replies "沒看到"', () => {
+  const bot = new Stage4MockBot();
+  const owner = 'dakaz';
+  bot.players.dakaz = {
+    entity: { id: 2, position: { x: 0, y: 64, z: 0 }, username: owner },
+    username: owner,
+  };
+  const companion = attachCompanion(bot as any, owner, { now: () => 1000 });
+  bot.emit('spawn');
+
+  bot.emit('chat', owner, '!sleep');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  assert.ok(bot.sent.includes('沒看到'));
+  assert.strictEqual(companion.snapshot().world.spawnPoint, null);
+
+  companion.dispose();
+});
+
+test('Stage 4.1 !sleep: with bed within 10 blocks at daytime sets spawn point and replies "現在不是晚上"', () => {
+  let simulatedTime = 1000;
+  const bot = new Stage4MockBot();
+  const owner = 'dakaz';
+  bot.players.dakaz = {
+    entity: { id: 2, position: { x: 0, y: 64, z: 0 }, username: owner },
+    username: owner,
+  };
+  bot.blocks.bed = { name: 'red_bed', position: { x: 2, y: 64, z: 0 } };
+  bot.time.timeOfDay = 6000; // daytime
+  const companion = attachCompanion(bot as any, owner, { now: () => simulatedTime });
+  bot.emit('spawn');
+
+  bot.emit('chat', owner, '!sleep');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  simulatedTime += 2000;
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  assert.ok(bot.sent.includes('現在不是晚上'));
+  assert.ok(companion.snapshot().world.spawnPoint !== null);
+  assert.strictEqual(companion.snapshot().intent.mode, 'IDLE');
+
+  companion.dispose();
+});
+
+test('Stage 4.1 !sleep: with bed within 10 blocks at night sets spawn point and triggers sleep', () => {
+  const bot = new Stage4MockBot();
+  const owner = 'dakaz';
+  bot.players.dakaz = {
+    entity: { id: 2, position: { x: 0, y: 64, z: 0 }, username: owner },
+    username: owner,
+  };
+  bot.blocks.bed = { name: 'red_bed', position: { x: 1, y: 64, z: 0 } };
+  bot.time.timeOfDay = 18000; // night
+  const companion = attachCompanion(bot as any, owner, { now: () => 1000 });
+  bot.emit('spawn');
+
+  bot.emit('chat', owner, '!sleep');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  assert.ok(companion.snapshot().world.spawnPoint !== null);
+  assert.strictEqual(bot.isSleeping, true);
+  assert.strictEqual(bot.sleepCalls, 1);
+
+  companion.dispose();
+});
+
+test('Stage 4.1 Autonomous Sleep: bot sleeps automatically in STAY mode when spawnPoint is set and night arrives', () => {
+  let simulatedTime = 1000;
+  const bot = new Stage4MockBot();
+  const owner = 'dakaz';
+  bot.players.dakaz = {
+    entity: { id: 2, position: { x: 0, y: 64, z: 0 }, username: owner },
+    username: owner,
+  };
+  bot.blocks.bed = { name: 'blue_bed', position: { x: 1, y: 64, z: 0 } };
+  const companion = attachCompanion(bot as any, owner, { now: () => simulatedTime });
+  bot.emit('spawn');
+
+  // 1. Set bed
+  bot.emit('chat', owner, '!setbed');
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+  assert.ok(companion.snapshot().world.spawnPoint !== null);
+
+  // 2. Put bot into STAY mode via !stop
+  bot.emit('chat', owner, '!stop');
+  bot.emit('physicsTick');
+  assert.strictEqual(companion.snapshot().intent.mode, 'STAY');
+
+  // 3. Night arrives
+  simulatedTime += 2000;
+  bot.time.timeOfDay = 18000;
+  bot.emit('physicsTick');
+  bot.emit('physicsTick');
+
+  // Bot automatically slept in STAY mode!
+  assert.strictEqual(bot.isSleeping, true);
+  assert.strictEqual(bot.sleepCalls, 1);
+
+  companion.dispose();
+});

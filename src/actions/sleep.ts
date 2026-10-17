@@ -8,6 +8,7 @@ import type {
   ActionResult,
 } from '../execution/types.ts';
 import type { Logger } from '../logger.ts';
+import { findNearbyBed, isAvailableBed } from '../perception.ts';
 import { safeBlockAt, setupMovements } from './navigation.ts';
 
 const { GoalNear } = goals.goals;
@@ -81,7 +82,11 @@ export function createSleepAdapter(
 
         if (dist <= survivalConfig.bed.sleepReachDistance) {
           bot.pathfinder?.setGoal(null);
-          const bedBlock = safeBlockAt(bot as any, targetPos);
+          let bedBlock = safeBlockAt(bot as any, targetPos);
+          if (!bedBlock || !isAvailableBed(bedBlock)) {
+            const nearby = findNearbyBed(bot as any, 3, targetPos);
+            if (nearby) bedBlock = nearby;
+          }
           if (bedBlock && typeof bot.sleep === 'function' && !bot.isSleeping && !inFlight) {
             inFlight = true;
             logger?.info(
@@ -95,7 +100,13 @@ export function createSleepAdapter(
               .catch(err => {
                 inFlight = false;
                 if (!active || !ctx.isActive()) return;
-                logger?.warn('[sleep] bot.sleep error: ' + err);
+                const msg = String(err?.message ?? err);
+                logger?.warn('[sleep] bot.sleep error: ' + msg);
+                if (msg.includes('occupied')) {
+                  options.chat?.enqueue('床被佔用了');
+                } else if (msg.includes('monster')) {
+                  options.chat?.enqueue('周圍有怪物，無法睡覺');
+                }
               });
           }
           return;
@@ -174,7 +185,11 @@ export function createSleepAdapter(
         if (dist <= survivalConfig.bed.sleepReachDistance) {
           bot.pathfinder?.setGoal(null);
           if (!inFlight && !bot.isSleeping && typeof bot.sleep === 'function') {
-            const bedBlock = safeBlockAt(bot as any, targetPos);
+            let bedBlock = safeBlockAt(bot as any, targetPos);
+            if (!bedBlock || !isAvailableBed(bedBlock)) {
+              const nearby = findNearbyBed(bot as any, 3, targetPos);
+              if (nearby) bedBlock = nearby;
+            }
             if (bedBlock) {
               inFlight = true;
               logger?.info(
@@ -188,7 +203,13 @@ export function createSleepAdapter(
                 .catch(err => {
                   inFlight = false;
                   if (!active || !ctx.isActive()) return;
-                  logger?.warn('[sleep] bot.sleep error: ' + err);
+                  const msg = String(err?.message ?? err);
+                  logger?.warn('[sleep] bot.sleep error: ' + msg);
+                  if (msg.includes('occupied')) {
+                    options.chat?.enqueue('床被佔用了');
+                  } else if (msg.includes('monster')) {
+                    options.chat?.enqueue('周圍有怪物，無法睡覺');
+                  }
                 });
             }
           }

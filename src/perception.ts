@@ -204,7 +204,7 @@ export function isAvailableBed(b: any): boolean {
 
 export function findNearbyBed(
   bot: any,
-  maxDistance = survivalConfig.bed.searchRadius,
+  maxDistance: number = survivalConfig.bed.searchRadius,
   center?: Position
 ): any | null {
   const centerPos = center ?? bot.entity?.position;

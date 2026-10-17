@@ -138,6 +138,62 @@ export function createCommandController(deps: CommandControllerDeps) {
       return;
     }
 
+    if (event.type === 'sleep') {
+      const currentWorld = perception.sample();
+      const center = bot.entity?.position ?? currentWorld.self.position;
+      let spawnPoint = currentWorld.spawnPoint;
+
+      if (!spawnPoint) {
+        const bed = findNearbyBed(bot, survivalConfig.bed.searchRadius, center);
+        if (!bed || !bed.position) {
+          logger?.info(
+            `[chat] !sleep: no bed found within ${survivalConfig.bed.searchRadius} blocks`
+          );
+          chat.enqueue('沒看到');
+          runner.requestUrgentTick();
+          return;
+        }
+        const bedPos = {
+          x: Math.round(bed.position.x * 10) / 10,
+          y: Math.round(bed.position.y * 10) / 10,
+          z: Math.round(bed.position.z * 10) / 10,
+        };
+        perception.setSpawnPoint(bedPos);
+        sample();
+        const msg = `Spawn point set to (${bedPos.x.toFixed(1)}, ${bedPos.y.toFixed(1)}, ${bedPos.z.toFixed(1)})`;
+        logger?.info(`[spawn] ${msg}`);
+        chat.enqueue(msg);
+        if (typeof bot.activateBlock === 'function') {
+          const dist = Math.hypot(bedPos.x - center.x, bedPos.y - center.y, bedPos.z - center.z);
+          if (dist <= survivalConfig.bed.reachDistance) {
+            bot.activateBlock(bed).catch(err => {
+              logger?.warn('[spawn] activateBlock error: ' + err);
+            });
+          }
+        }
+        spawnPoint = bedPos;
+      }
+
+      const isNight =
+        currentWorld.timeOfDay >= survivalConfig.sleepMinTime &&
+        currentWorld.timeOfDay <= survivalConfig.sleepMaxTime;
+      const canSleepNow = currentWorld.isRaining || isNight;
+      if (!canSleepNow) {
+        logger?.info('[chat] !sleep: not night or raining yet');
+        chat.enqueue('現在不是晚上');
+        runner.enqueue({ type: 'intent', mode: 'IDLE' });
+        runner.requestUrgentTick();
+        return;
+      }
+
+      logger?.info(
+        `[chat] accepted command: sleep at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`
+      );
+      runner.enqueue({ type: 'intent', mode: 'IDLE' });
+      runner.requestUrgentTick();
+      return;
+    }
+
     if (event.type === 'come') {
       const currentWorld = perception.sample();
       const masterPos = currentWorld.master.position;

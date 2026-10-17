@@ -6,6 +6,7 @@ export type CommandEvent =
   | { type: 'status' }
   | { type: 'set_base' }
   | { type: 'set_bed' }
+  | { type: 'sleep' }
   | { type: 'come' }
   | { type: 'set_dig'; enabled: boolean }
   | { type: 'set_bridge'; enabled: boolean }
@@ -34,6 +35,7 @@ export function parseCommand(
     if (cmd === 'status' || cmd === 'state') return { type: 'status' };
     if (cmd === 'base') return { type: 'set_base' };
     if (cmd === 'setbed' || cmd === 'set_bed') return { type: 'set_bed' };
+    if (cmd === 'sleep') return { type: 'sleep' };
     if (cmd === 'come') return { type: 'come' };
     if (cmd === 'return') return { type: 'intent', mode: 'RETURN' };
   }

@@ -5,7 +5,7 @@ import { action, guard, reactiveSelector } from '../nodes.ts';
 export function canSleep(s: BlackboardSnapshot): boolean {
   return (
     s.world.self.isAlive &&
-    s.intent.mode === 'IDLE' &&
+    (s.intent.mode === 'IDLE' || s.intent.mode === 'STAY') &&
     s.world.spawnPoint !== null &&
     (s.world.isRaining ||
       (s.world.timeOfDay >= survivalConfig.sleepMinTime &&
@@ -19,7 +19,7 @@ export function shouldExitSleep(s: BlackboardSnapshot, available: ReadonlySet<st
   return (
     !available.has('SleepAtBed') ||
     !s.world.self.isAlive ||
-    s.intent.mode !== 'IDLE' ||
+    (s.intent.mode !== 'IDLE' && s.intent.mode !== 'STAY') ||
     s.world.spawnPoint === null ||
     s.world.self.tookDamageRecently ||
     s.world.threats.length > 0 ||
