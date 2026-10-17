@@ -11,10 +11,11 @@
 ## 階段目錄 (Stage 4 Breakdown)
 
 - **Stage 4.1: 夜晚自主回 Spawn 睡覺、床鋪設定 (`!setbed` / `SetBed`) 與起床作息 (Nightly Autonomous Sleep & Bed Setup)** *(已完成)*
-- **Stage 4.2: 多作物農事種植自動化修正與完成驗收 (`!farm`)**
-- **Stage 4.3: 多作物熟成收割與自動補種 (`!harvest`)**
-- **Stage 4.4: 命名箱子管理、損毀自動移除與物品存取 (`!box`)**
-- **Stage 4.5: Stage 4 綜合整合與端到端驗收測試**
+- **Stage 4.2: 基礎放置隔離診斷與除錯指令 (`!placedirt`)** *(新增 - 測試 `placeBlock` 是否被 PaperMC / Client 阻擋)*
+- **Stage 4.3: 多作物農事種植自動化修正與完成驗收 (`!farm`)**
+- **Stage 4.4: 多作物熟成收割與自動補種 (`!harvest`)**
+- **Stage 4.5: 命名箱子管理、損毀自動移除與物品存取 (`!box`)**
+- **Stage 4.6: Stage 4 綜合整合與端到端驗收測試**
 
 ---
 
@@ -62,9 +63,32 @@
 
 ---
 
-## Stage 4.2: 多作物農事種植自動化修正與完成驗收 (`!farm`)
+## Stage 4.2: 基礎放置隔離診斷與除錯指令 (`!placedirt`)
 
 ### 4.2.1 階段目標
+完全隔離農事工作區、多種子檢查、長途巡邏與複雜視線計算，直接以最純粹的獨立指令 `!placedirt`，要求 Bot 手持泥土並在正前方地面放置一塊泥土，診斷 PaperMC 伺服器或 Mineflayer Client 端是否阻擋/鎖死 `placeBlock`。
+
+### 4.2.2 規格與行為定義
+- **指令語法**：`!placedirt`（或 `!place`）
+- **執行流程**：
+  1. 檢查背包中是否有 `dirt`（或 `grass_block`、`coarse_dirt` 等泥土類方塊），若無則 chat 回覆 `No dirt in inventory`。
+  2. 手持泥土（`await bot.equip(dirtItem.type, 'hand')`）。
+  3. 計算正前方地面方塊：依 Bot 當前 yaw 計算正前方 1 格的地面實體方塊（`refBlock`），且其上方 1 格為空氣。
+  4. 呼叫 `await bot.placeBlock(refBlock, new Vec3(0, 1, 0))`。
+  5. 捕捉結果：
+     - 若成功：chat 回報 `Placed dirt successfully at (x, y, z)`。
+     - 若失敗：chat 與 logger 完整輸出 `placeBlock failed: ${err.message}`（直接揭露 PaperMC 或 Client 端拋出的真實錯誤訊息）。
+
+### 4.2.3 驗收門檻
+- [ ] 下達 `!placedirt`，無泥土時 chat 提示 `No dirt in inventory`。
+- [ ] 有泥土時，Bot 手持泥土並嘗試在正前方放置泥土方塊。
+- [ ] 放置成功或失敗皆能輸出詳細日誌或錯誤原因，明確判定 PaperMC / Client 是否阻擋 `placeBlock`。
+
+---
+
+## Stage 4.3: 多作物農事種植自動化修正與完成驗收 (`!farm`)
+
+### 4.3.1 階段目標
 基於 Stage 3 重構後的 `TaskSessionManager` 與已解除 `placeBlock` 誤攔截的 `NavigationExecutionBoundary`，完善並修正多作物農事耕作（`!farm`）：檢查背包中可播種的種子，在集合點半徑 25 格內尋找空置耕地（`farmland`）種植，並修正播種成功驗證語義（`SR-10`）。
 
 ### 4.2.2 規格與修正重點
@@ -87,11 +111,21 @@
   - 連續 5 次播種失敗時自動熔斷，通知主人並切換為 `IDLE`。
 
 ### 4.2.3 驗收門檻
-- [ ] 播種採用 `activateBlock(farmlandBlock, new Vec3(0, 1, 0))` 模擬玩家右鍵播種。
+- [ ] 播種前透過 `lookAt` 對準耕地頂面，並經由 `bot.blockAtCursor` 射線確認準心精確鎖定耕地方塊。
+- [ ] 播種依據官方 `farmer.js` 採用手持種子 `placeBlock(farmlandBlock, new Vec3(0, 1, 0))` 進行放置。
 - [ ] 無種子時下達 `!farm` 能即時警示並退出。
 - [ ] `aboveBlock === null` 時不會誤判為播種成功，只有確認種上作物或種子消耗才計入 `plantedCount`。
 - [ ] 播種移動過程中不觸發跳躍，不破壞耕地方塊。
 - [ ] 種子用盡、無地可種或達 20 分鐘時限時發送完成訊息並切換為 `IDLE`（且可重複執行第二次 `!farm`）。
+
+### 4.2.4 清除無效假 Mock 測試與測試真實性重構 (`SR-FakeTest`)
+- **背景與痛點**：
+  - 目前部分 Action 單元測試（如 `test/unit/farming-plant.test.ts`）將 `placeBlock`、`lookAt` 等底層 Minecraft 物理 I/O 實作為無條件成功的空函式（如 `async placeBlock() {}`），且 `blockAt` 無條件回傳假資料。
+  - 這種測試無法反映真實 Minecraft 伺服器的物理碰撞、射線相交（Raycast）與放置拒絕，造成「測試 100% 通過但真機永遠失敗」的假象。
+- **清除與重構規劃**：
+  - [ ] 盤點並清理 Action 測試中所有只為了斷言「mock 函式被呼叫過」的無效假測試。
+  - [ ] 單元測試聚焦於純邏輯覆蓋：Blackboard 演化、指令解析、Arbiter 優先級決策、TaskSessionManager 計數與防重入。
+  - [ ] 物理交互（視線對準、方塊放置、睡覺）改由真機測試或高保真 Paper E2E 整合測試作為最終驗收門檻。
 
 
 ---
