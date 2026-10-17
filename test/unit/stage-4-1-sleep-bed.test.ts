@@ -453,7 +453,7 @@ test('Stage 4.1 !sleep: without bed within 10 blocks replies "沒看到"', () =>
   companion.dispose();
 });
 
-test('Stage 4.1 !sleep: with bed within 10 blocks at daytime sets spawn point and replies "現在不是晚上"', () => {
+test('Stage 4.1 !sleep: with bed within 10 blocks at daytime sets spawn point and activates bed even in daytime', () => {
   let simulatedTime = 1000;
   const bot = new Stage4MockBot();
   const owner = 'dakaz';
@@ -469,13 +469,11 @@ test('Stage 4.1 !sleep: with bed within 10 blocks at daytime sets spawn point an
   bot.emit('chat', owner, '!sleep');
   bot.emit('physicsTick');
   bot.emit('physicsTick');
-  simulatedTime += 2000;
-  bot.emit('physicsTick');
-  bot.emit('physicsTick');
 
-  assert.ok(bot.sent.includes('現在不是晚上'));
   assert.ok(companion.snapshot().world.spawnPoint !== null);
-  assert.strictEqual(companion.snapshot().intent.mode, 'IDLE');
+  assert.strictEqual(companion.snapshot().intent.mode, 'SLEEP');
+  // Bed block was activated like a player clicking the bed!
+  assert.ok(bot.activatedBlocks.length >= 1);
 
   companion.dispose();
 });

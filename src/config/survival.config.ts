@@ -6,10 +6,10 @@ export const survivalConfig = {
   sleepMaxTime: 23458, // Dawn / wake up time in ticks
   bed: {
     searchRadius: 10,
-    reachDistance: 2.5,
-    approachGoal: 2.0,
-    sleepReachDistance: 2.0,
-    sleepApproachGoal: 1.8,
+    reachDistance: 2.8,
+    approachGoal: 1.5,
+    sleepReachDistance: 2.8,
+    sleepApproachGoal: 1.5,
     setBedTimeoutMs: 30_000,
     failureCooldownMs: 60_000,
   },

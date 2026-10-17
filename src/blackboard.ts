@@ -55,8 +55,9 @@ export interface WorkAreaState {
   targetAnimal?: string | null;
 }
 export interface IntentState {
-  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM' | 'HUNT';
+  mode: 'FOLLOW' | 'STAY' | 'IDLE' | 'COME' | 'RETURN' | 'FARM' | 'HUNT' | 'SLEEP';
   targetPosition?: Position | null;
+
   workArea?: WorkAreaState | null;
   canDig: boolean;
   allowBridge: boolean;

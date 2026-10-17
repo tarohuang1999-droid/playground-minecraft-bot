@@ -174,22 +174,10 @@ export function createCommandController(deps: CommandControllerDeps) {
         spawnPoint = bedPos;
       }
 
-      const isNight =
-        currentWorld.timeOfDay >= survivalConfig.sleepMinTime &&
-        currentWorld.timeOfDay <= survivalConfig.sleepMaxTime;
-      const canSleepNow = currentWorld.isRaining || isNight;
-      if (!canSleepNow) {
-        logger?.info('[chat] !sleep: not night or raining yet');
-        chat.enqueue('現在不是晚上');
-        runner.enqueue({ type: 'intent', mode: 'IDLE' });
-        runner.requestUrgentTick();
-        return;
-      }
-
       logger?.info(
         `[chat] accepted command: sleep at (${spawnPoint.x.toFixed(1)}, ${spawnPoint.y.toFixed(1)}, ${spawnPoint.z.toFixed(1)})`
       );
-      runner.enqueue({ type: 'intent', mode: 'IDLE' });
+      runner.enqueue({ type: 'intent', mode: 'SLEEP' });
       runner.requestUrgentTick();
       return;
     }
