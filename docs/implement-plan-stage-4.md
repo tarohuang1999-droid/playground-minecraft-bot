@@ -73,9 +73,12 @@
   - 胡蘿蔔：`carrot` $\to$ `carrots` (`age === 7`)。
   - 馬鈴薯：`potato` $\to$ `potatoes` (`age === 7`)。
   - 甜菜根：`beetroot_seeds` $\to$ `beetroots` (`age === 3`)。
+- **播種互動核心改進 (`activateBlock` on Farmland)**：
+  - **根本問題**：Minecraft 玩家播種行為本質是**手拿種子對耕地按右鍵**。原先優先使用 `placeBlock(farmlandBlock, new Vec3(0, 1, 0))`，容易受 Mineflayer 的方塊放置碰撞視線與放置限制檢查阻礙，造成卡住或失敗。
+  - **改善策略**：手持種子（`bot.equip(itemToEquip, 'hand')`）後，直接對耕地方塊頂面呼叫 `bot.activateBlock(farmlandBlock, new Vec3(0, 1, 0))` 進行右鍵點擊，模擬真實玩家右鍵點擊耕地播種，並配合 `bot.swingArm('right')`。
 - **修正播種成功判定 (`SR-10`)**：
-  - **移除過度樂觀判定**：在 `src/actions/farming.ts` 中，不得將 `!aboveBlock`（區塊未載入或回傳 null）視為播種成功。
-  - **正確判定標準**：播種後檢查耕地上方一格方塊名稱是否為對應的作物方塊（如 `wheat`, `carrots`, `potatoes`, `beetroots`），或確認 `placeBlock` 無報錯且背包對應種子數量確實減少。
+  - **移除過度樂觀判定**：在 `src/actions/farming.ts` 中，嚴禁將 `!aboveBlock`（區塊未載入或回傳 null）視為播種成功。
+  - **正確判定標準**：播種後檢查耕地上方一格方塊名稱是否為對應的作物方塊（如 `wheat`, `carrots`, `potatoes`, `beetroots`），或確認背包對應種子數量確實減少。
 - **防踐踏與邊界約束**：
   - 移動時 `allowParkour = false` 且禁止跳躍，避免踩壞耕地。
   - 範圍限制在 `rallyPoint` 水平距離 $\le 25.0$ 格內，單次工時上限 20 分鐘（`1,200,000` ms）。
@@ -84,10 +87,12 @@
   - 連續 5 次播種失敗時自動熔斷，通知主人並切換為 `IDLE`。
 
 ### 4.2.3 驗收門檻
+- [ ] 播種採用 `activateBlock(farmlandBlock, new Vec3(0, 1, 0))` 模擬玩家右鍵播種。
 - [ ] 無種子時下達 `!farm` 能即時警示並退出。
 - [ ] `aboveBlock === null` 時不會誤判為播種成功，只有確認種上作物或種子消耗才計入 `plantedCount`。
 - [ ] 播種移動過程中不觸發跳躍，不破壞耕地方塊。
 - [ ] 種子用盡、無地可種或達 20 分鐘時限時發送完成訊息並切換為 `IDLE`（且可重複執行第二次 `!farm`）。
+
 
 ---
 
