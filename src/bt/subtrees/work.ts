@@ -169,7 +169,7 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
         Math.hypot(
           s.world.nearbyBed.x - s.world.self.position.x,
           s.world.nearbyBed.z - s.world.self.position.z
-        ) <= 2.5));
+        ) <= survivalConfig.bed.reachDistance));
 
   const setSpawn = guard(
     'SetSpawn-ready',
@@ -317,41 +317,6 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     { exit: s => !isHuntingFinished(s) }
   );
 
-  const canSleep = (s: BlackboardSnapshot) =>
-    s.world.self.isAlive &&
-    s.intent.mode === 'IDLE' &&
-    s.world.spawnPoint !== null &&
-    (s.world.isRaining ||
-      (s.world.timeOfDay >= survivalConfig.sleepMinTime &&
-        s.world.timeOfDay <= survivalConfig.sleepMaxTime)) &&
-    s.world.threats.length === 0 &&
-    !s.world.self.tookDamageRecently;
-
-  const sleepAtBed = guard(
-    'SleepAtBed-ready',
-    s => available.has('SleepAtBed') && canSleep(s),
-    action('SleepAtBed', s => {
-      const spawn = s.world.spawnPoint!;
-      return {
-        actionType: 'SleepAtBed',
-        targetId: null,
-        params: { x: spawn.x, y: spawn.y, z: spawn.z },
-      };
-    }),
-    {
-      exit: s =>
-        !available.has('SleepAtBed') ||
-        !s.world.self.isAlive ||
-        s.intent.mode !== 'IDLE' ||
-        s.world.spawnPoint === null ||
-        s.world.self.tookDamageRecently ||
-        s.world.threats.length > 0 ||
-        (!s.world.isRaining &&
-          (s.world.timeOfDay < survivalConfig.sleepMinTime ||
-            s.world.timeOfDay > survivalConfig.sleepMaxTime)),
-    }
-  );
-
   return reactiveSelector('work', [
     follow('CatchUpFollow', THRESHOLDS.catchUpEnter, THRESHOLDS.catchUpExit),
     pickup,
@@ -363,6 +328,5 @@ export function workSubtree(available: ReadonlySet<string>, options?: WorkSubtre
     farmFinish,
     follow('NormalFollow', THRESHOLDS.followEnter, THRESHOLDS.followExit),
     setSpawn,
-    sleepAtBed,
   ]);
 }

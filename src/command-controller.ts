@@ -2,7 +2,8 @@ import type { createChat } from './actions/chat.ts';
 import type { BlackboardSnapshot } from './blackboard.ts';
 import type { Runner } from './bt/runner.ts';
 import { parseCommand } from './commands.ts';
-import { workConfig } from './config/index.ts';
+import { workConfig, survivalConfig } from './config/index.ts';
+
 import type { Logger } from './logger.ts';
 import { findNearbyBed, type createPerception } from './perception.ts';
 import type { TaskSessionManager } from './sessions/task-session-manager.ts';
@@ -105,9 +106,11 @@ export function createCommandController(deps: CommandControllerDeps) {
     if (event.type === 'set_bed') {
       const currentWorld = perception.sample();
       const center = bot.entity?.position ?? currentWorld.self.position;
-      const bed = findNearbyBed(bot, 10, center);
+      const bed = findNearbyBed(bot, survivalConfig.bed.searchRadius, center);
       if (!bed || !bed.position) {
-        logger?.info('[chat] !setbed: no bed found within 10 blocks');
+        logger?.info(
+          `[chat] !setbed: no bed found within ${survivalConfig.bed.searchRadius} blocks`
+        );
         chat.enqueue('沒看到');
         runner.requestUrgentTick();
         return;
@@ -124,12 +127,13 @@ export function createCommandController(deps: CommandControllerDeps) {
       chat.enqueue(msg);
       if (typeof bot.activateBlock === 'function') {
         const dist = Math.hypot(bedPos.x - center.x, bedPos.y - center.y, bedPos.z - center.z);
-        if (dist <= 2.5) {
+        if (dist <= survivalConfig.bed.reachDistance) {
           bot.activateBlock(bed).catch(err => {
             logger?.warn('[spawn] activateBlock error: ' + err);
           });
         }
       }
+
       runner.requestUrgentTick();
       return;
     }

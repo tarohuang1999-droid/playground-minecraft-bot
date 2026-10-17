@@ -1,5 +1,5 @@
 import { createWorld, type Position, type WorldState } from './blackboard.ts';
-import { THRESHOLDS, CROP_REGISTRY, workConfig } from './config/index.ts';
+import { THRESHOLDS, CROP_REGISTRY, workConfig, survivalConfig } from './config/index.ts';
 import { Vec3 } from 'vec3';
 import { loadPersistentState, savePersistentState } from './state-storage.ts';
 
@@ -202,7 +202,11 @@ export function isAvailableBed(b: any): boolean {
   return true;
 }
 
-export function findNearbyBed(bot: any, maxDistance = 10, center?: Position): any | null {
+export function findNearbyBed(
+  bot: any,
+  maxDistance = survivalConfig.bed.searchRadius,
+  center?: Position
+): any | null {
   const centerPos = center ?? bot.entity?.position;
   if (!centerPos) return null;
 

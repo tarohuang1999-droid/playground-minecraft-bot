@@ -9,6 +9,7 @@ import type {
 import type { Logger } from '../logger.ts';
 import { findNearbyBed } from '../perception.ts';
 import { safeBlockAt, setupMovements } from './navigation.ts';
+import { survivalConfig } from '../config/index.ts';
 
 const { GoalNear } = goals.goals;
 
@@ -44,11 +45,16 @@ export function createSetBedAdapter(
       start(ctx: ActionContext): void | ActionResult {
         if (!ctx.isActive()) return;
         const center = bot.entity?.position ?? ctx.getSnapshot().world.self.position;
-        const bed = findNearbyBed(bot, 10, center);
+        const bed = findNearbyBed(bot, survivalConfig.bed.searchRadius, center);
         if (!bed || !bed.position) {
-          logger?.info('[bed] SetBed: no bed found within 10 blocks');
+          logger?.info(
+            `[bed] SetBed: no bed found within ${survivalConfig.bed.searchRadius} blocks`
+          );
           options.onNoBedFound?.();
-          return { status: 'FAILURE', reason: 'No bed found within 10 blocks' };
+          return {
+            status: 'FAILURE',
+            reason: `No bed found within ${survivalConfig.bed.searchRadius} blocks`,
+          };
         }
 
         targetPos = {
@@ -64,7 +70,7 @@ export function createSetBedAdapter(
           targetPos.z - center.z
         );
 
-        if (dist <= 2.5) {
+        if (dist <= survivalConfig.bed.reachDistance) {
           const bedBlock = safeBlockAt(bot as any, targetPos) ?? bed;
           if (bedBlock && typeof bot.activateBlock === 'function') {
             bot.activateBlock(bedBlock).catch(err => {
@@ -80,7 +86,10 @@ export function createSetBedAdapter(
 
         if (bot.pathfinder) {
           setupMovements(bot as any, logger, { canDig: false, allowBridge: false });
-          bot.pathfinder.setGoal(new GoalNear(targetPos.x, targetPos.y, targetPos.z, 2.0), false);
+          bot.pathfinder.setGoal(
+            new GoalNear(targetPos.x, targetPos.y, targetPos.z, survivalConfig.bed.approachGoal),
+            false
+          );
         }
       },
 
@@ -88,11 +97,14 @@ export function createSetBedAdapter(
         if (!active || !ctx.isActive() || !targetPos) return;
 
         const now = Date.now();
-        if (now - startTime > 30000) {
-          logger?.warn('[bed] SetBed timed out after 30s');
+        if (now - startTime > survivalConfig.bed.setBedTimeoutMs) {
+          logger?.warn(`[bed] SetBed timed out after ${survivalConfig.bed.setBedTimeoutMs}ms`);
           bot.pathfinder?.setGoal(null);
           bot.setControlState?.('jump', false);
-          return { status: 'FAILURE', reason: 'SetBed timed out after 30000ms' };
+          return {
+            status: 'FAILURE',
+            reason: `SetBed timed out after ${survivalConfig.bed.setBedTimeoutMs}ms`,
+          };
         }
 
         const currentPos = bot.entity?.position ?? ctx.getSnapshot().world.self.position;
@@ -102,10 +114,11 @@ export function createSetBedAdapter(
           targetPos.z - currentPos.z
         );
 
-        if (dist <= 2.5) {
+        if (dist <= survivalConfig.bed.reachDistance) {
           bot.pathfinder?.setGoal(null);
           bot.setControlState?.('jump', false);
           const bedBlock = safeBlockAt(bot as any, targetPos);
+
           if (bedBlock && typeof bot.activateBlock === 'function') {
             bot.activateBlock(bedBlock).catch(err => {
               logger?.warn('[bed] activateBlock error: ' + err);

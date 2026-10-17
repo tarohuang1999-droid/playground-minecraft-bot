@@ -13,6 +13,7 @@ import { createInventoryAdapters, type InventoryBot } from './inventory.ts';
 import { createNavigation, type NavigationBot } from './navigation.ts';
 import { createSleepAdapter, type SleepBot } from './sleep.ts';
 import { createSetBedAdapter, type SetBedBot } from './bed.ts';
+import { survivalConfig } from '../config/index.ts';
 
 export interface ActionBotPort extends PerceptionSource {
   pathfinder?: NavigationBot['pathfinder'];
@@ -68,8 +69,10 @@ export function createActionAdapters(bot: ActionBotPort, deps: CreateActionAdapt
       requestUrgentTick();
     },
     onSpawnFailed: () => {
-      logger?.warn('[spawn] Bed unreachable, entering 60s cooldown');
-      perception.setBedCooldown(60000);
+      logger?.warn(
+        `[spawn] Bed unreachable, entering ${survivalConfig.bed.failureCooldownMs / 1000}s cooldown`
+      );
+      perception.setBedCooldown(survivalConfig.bed.failureCooldownMs);
       sample();
       requestUrgentTick();
     },

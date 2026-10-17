@@ -359,3 +359,77 @@ test('Stage 4.1 Autonomous Sleep: morning arrival wakes up bot, announces "Good 
 
   companion.dispose();
 });
+
+test('Stage 4.1 Rest subtree & survivalConfig: canSleep and shouldExitSleep unit verification', async () => {
+  const { canSleep, shouldExitSleep, restSubtree } = await import('../../src/bt/subtrees/rest.ts');
+  const { createWorld } = await import('../../src/blackboard.ts');
+
+  // Verify survivalConfig.bed parameters exist and are numbers
+  assert.strictEqual(typeof survivalConfig.bed.searchRadius, 'number');
+  assert.strictEqual(typeof survivalConfig.bed.reachDistance, 'number');
+  assert.strictEqual(typeof survivalConfig.bed.sleepReachDistance, 'number');
+  assert.strictEqual(typeof survivalConfig.bed.sleepApproachGoal, 'number');
+  assert.strictEqual(typeof survivalConfig.bed.setBedTimeoutMs, 'number');
+  assert.strictEqual(typeof survivalConfig.bed.failureCooldownMs, 'number');
+
+  // 1. Initial snapshot: mode is IDLE, but spawnPoint is null -> canSleep false
+  const world = createWorld();
+  const baseSnapshot = {
+    world: {
+      ...world,
+      self: { ...world.self, isAlive: true, tookDamageRecently: false },
+      spawnPoint: null,
+      timeOfDay: 18000,
+      isRaining: false,
+      threats: [],
+    },
+    intent: { mode: 'IDLE' as const, canDig: false, allowBridge: false, missionId: null },
+    runtime: { lockedResources: {}, activeRuns: {}, results: {}, cooldowns: {} },
+    observedAt: 1000,
+  };
+
+  assert.strictEqual(canSleep(baseSnapshot as any), false);
+
+  // 2. Set spawn point -> canSleep true at night
+  const sleepingSnapshot = {
+    ...baseSnapshot,
+    world: {
+      ...baseSnapshot.world,
+      spawnPoint: { x: 10, y: 64, z: 10 },
+    },
+  };
+  assert.strictEqual(canSleep(sleepingSnapshot as any), true);
+  assert.strictEqual(shouldExitSleep(sleepingSnapshot as any, new Set(['SleepAtBed'])), false);
+
+  // 3. During daytime without rain -> canSleep false, shouldExitSleep true
+  const daytimeSnapshot = {
+    ...sleepingSnapshot,
+    world: {
+      ...sleepingSnapshot.world,
+      timeOfDay: 6000,
+      isRaining: false,
+    },
+  };
+  assert.strictEqual(canSleep(daytimeSnapshot as any), false);
+  assert.strictEqual(shouldExitSleep(daytimeSnapshot as any, new Set(['SleepAtBed'])), true);
+
+  // 4. During daytime WITH rain -> canSleep true
+  const rainyDaytimeSnapshot = {
+    ...daytimeSnapshot,
+    world: {
+      ...daytimeSnapshot.world,
+      isRaining: true,
+    },
+  };
+  assert.strictEqual(canSleep(rainyDaytimeSnapshot as any), true);
+  assert.strictEqual(shouldExitSleep(rainyDaytimeSnapshot as any, new Set(['SleepAtBed'])), false);
+
+  // 5. Standalone restSubtree BT evaluation
+  const { createTree } = await import('../../src/bt/nodes.ts');
+  const tree = createTree(restSubtree(new Set(['SleepAtBed'])));
+  const result = tree.tick(sleepingSnapshot as any);
+  assert.strictEqual(result.status, 'RUNNING');
+  const sleepReq = result.requests.find(r => r.actionType === 'SleepAtBed');
+  assert.ok(sleepReq, 'SleepAtBed should be requested');
+  assert.deepStrictEqual(sleepReq?.params, { x: 10, y: 64, z: 10 });
+});

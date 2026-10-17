@@ -79,7 +79,7 @@ export function createSleepAdapter(
           targetPos.z - currentPos.z
         );
 
-        if (dist <= 2.0) {
+        if (dist <= survivalConfig.bed.sleepReachDistance) {
           bot.pathfinder?.setGoal(null);
           const bedBlock = safeBlockAt(bot as any, targetPos);
           if (bedBlock && typeof bot.sleep === 'function' && !bot.isSleeping && !inFlight) {
@@ -106,7 +106,15 @@ export function createSleepAdapter(
           logger?.info(
             `[sleep] heading to bed at (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)}, ${targetPos.z.toFixed(1)})`
           );
-          bot.pathfinder.setGoal(new GoalNear(targetPos.x, targetPos.y, targetPos.z, 1.8), false);
+          bot.pathfinder.setGoal(
+            new GoalNear(
+              targetPos.x,
+              targetPos.y,
+              targetPos.z,
+              survivalConfig.bed.sleepApproachGoal
+            ),
+            false
+          );
         }
       },
 
@@ -163,7 +171,7 @@ export function createSleepAdapter(
           targetPos.z - currentPos.z
         );
 
-        if (dist <= 2.0) {
+        if (dist <= survivalConfig.bed.sleepReachDistance) {
           bot.pathfinder?.setGoal(null);
           if (!inFlight && !bot.isSleeping && typeof bot.sleep === 'function') {
             const bedBlock = safeBlockAt(bot as any, targetPos);
